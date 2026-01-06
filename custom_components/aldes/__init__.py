@@ -39,11 +39,22 @@ def coerce_time(value: str | dt_time | None) -> dt_time:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Aldes from a config entry."""
+    token = entry.options.get("token", "")
     api = AldesApi(
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
         aiohttp_client.async_get_clientsession(hass),
+        token,
     )
+
+    if not token or not await api.check_token_validity():
+        _LOGGER.info("Token missing or invalid, authenticating...")
+        await api.authenticate()
+        hass.config_entries.async_update_entry(
+            entry,
+            options={**entry.options, "token": api.token},
+        )
+
     coordinator = AldesDataUpdateCoordinator(hass, api)
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
@@ -393,6 +404,50 @@ async def _register_services(hass: HomeAssistant) -> None:
                 vol.Optional("entity_id"): str,
                 vol.Required("start_date"): vol.Any(str, vol.Coerce(datetime.date)),
                 vol.Optional("start_time", default="00:00:00"): coerce_time,
+            }
+        ),
+    )
+
+    async def async_update_credentials(call: ServiceCall) -> None:
+        """Update login and password."""
+        entry_id = call.data.get("entry_id")
+        new_username = call.data.get("username")
+        new_password = call.data.get("password")
+
+        if not entry_id or not new_username or not new_password:
+            _LOGGER.error("entry_id, username, and password are required")
+            return
+
+        # Get the ConfigEntry
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if not entry:
+            _LOGGER.error("ConfigEntry not found")
+            return
+
+        # Update credentials
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                **entry.data,
+                CONF_USERNAME: new_username,
+                CONF_PASSWORD: new_password,
+            },
+            # Clear token to force reauthentication
+            options={**entry.options, "token": ""},
+        )
+
+        # Reload the configuration
+        await async_reload_entry(hass, entry)
+
+    hass.services.async_register(
+        DOMAIN,
+        "update_credentials",
+        async_update_credentials,
+        schema=vol.Schema(
+            {
+                vol.Required("entry_id"): str,
+                vol.Required("username"): str,
+                vol.Required("password"): str,
             }
         ),
     )

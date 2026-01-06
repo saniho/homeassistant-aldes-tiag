@@ -1,6 +1,8 @@
 """Aldes API client."""
 
 import asyncio
+import base64
+import json
 import logging
 from datetime import UTC, datetime
 from enum import IntEnum
@@ -36,13 +38,17 @@ class AldesApi:
     _TOKEN_TYPE = "Bearer"  # noqa: S105
 
     def __init__(
-        self, username: str, password: str, session: aiohttp.ClientSession
+        self,
+        username: str,
+        password: str,
+        session: aiohttp.ClientSession,
+        token: str = "",
     ) -> None:
         """Initialize Aldes API client."""
         self._username = username
         self._password = password
         self._session = session
-        self._token = ""
+        self._token = token
         self._timeout = ClientTimeout(total=30)
         self._cache: dict[str, Any] = {}
         self._cache_timestamp: dict[str, datetime] = {}
@@ -59,7 +65,6 @@ class AldesApi:
             "username": self._username,
             "password": self._password,
         }
-
         try:
             async with self._session.post(
                 self._API_URL_TOKEN, data=data, timeout=self._timeout
@@ -426,6 +431,37 @@ class AldesApi:
         except (ClientError, TimeoutError):
             _LOGGER.exception("Failed to get statistics")
             return None
+
+    async def check_token_validity(self) -> bool:
+        """Check if the current token is still valid."""
+        if not self._token:
+            return False
+        try:
+            # Décode le payload du JWT (sans vérifier la signature)
+            payload = self._token.split(".")[1]
+            # Ajoute des padding si nécessaire
+            payload += "=" * (-len(payload) % 4)
+            decoded = json.loads(base64.b64decode(payload).decode("utf-8"))
+            exp = decoded.get("exp", 0)
+            if exp and datetime.now(UTC).timestamp() > exp:
+                _LOGGER.info("Token expiré selon le champ 'exp'")
+                return False
+            # Teste une requête légère
+            await self.fetch_data()
+            return True
+        except Exception as e:
+            _LOGGER.warning("Erreur lors de la vérification du token: %s", e)
+            return False
+
+    @property
+    def token(self) -> str:
+        """Return the current access token."""
+        return self._token
+
+    @token.setter
+    def token(self, value: str) -> None:
+        """Set the current access token."""
+        self._token = value
 
 
 class AuthenticationError(Exception):

@@ -4,6 +4,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import AldesApi, AuthenticationError
@@ -72,3 +73,14 @@ class AldesFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             return False
         else:
             return True
+
+    async def async_migrate_entry(
+        self, hass: HomeAssistant, entry: config_entries.ConfigEntry
+    ) -> bool:
+        """Migrate old entry."""
+        if "token" not in entry.options:
+            hass.config_entries.async_update_entry(
+                entry,
+                options={**entry.options, "token": ""},
+            )
+        return True
