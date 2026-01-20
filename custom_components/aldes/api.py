@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -33,7 +34,7 @@ class AldesApi:
     """Aldes API client."""
 
     _API_URL_BASE = "https://aldesiotsuite-aldeswebapi.azurewebsites.net"
-    _API_URL_TOKEN = f"{_API_URL_BASE}/oauth2/token"  # noqa: S105
+    _API_URL_TOKEN = f"{_API_URL_BASE}/oauth2/token"
     _API_URL_PRODUCTS = (
         f"{_API_URL_BASE}/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
     )
@@ -252,11 +253,8 @@ class AldesApi:
             finally:
                 # Ensure task_done is called even if processing failed
                 # to avoid blocking join() calls if used in future
-                try:
+                with contextlib.suppress(ValueError):
                     self.queue_target_temperature.task_done()
-                except ValueError:
-                    # Handle case where task_done called more times than items put
-                    pass
 
     async def set_target_temperature(
         self,
@@ -532,8 +530,8 @@ class AldesApi:
             # Teste une requête légère
             await self.fetch_data()
             return True
-        except Exception as e:
-            _LOGGER.warning("Erreur lors de la vérification du token: %s", e)
+        except Exception:
+            _LOGGER.exception("Erreur lors de la vérification du token")
             return False
 
     @property

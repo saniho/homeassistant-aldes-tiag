@@ -45,6 +45,10 @@ PROGRAM_BOOST = "G"
 OPTIMISTIC_HOLD_DURATION = 60
 # Maximum number of retries for silent failures
 MAX_RETRIES = 3
+# Minimum length for planning slot string
+MIN_PLANNING_SLOT_LENGTH = 3
+# Temperature difference threshold for retry
+TEMP_DIFF_THRESHOLD = 0.5
 
 
 async def async_setup_entry(
@@ -126,19 +130,11 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         return f"Thermostat {self.thermostat.name}"
 
     def _get_current_time_slot(self) -> str:
-        """Get the current time slot character (0-9, A-N for hours 0-23, plus half-hour indicator)."""
+        """Get the current time slot character (0-9, A-N for hours 0-23)."""
         now = dt_util.now()
         # Hours: 0-9 = '0'-'9', 10-23 = 'A'-'N'
         hour = now.hour
-        if hour < 10:
-            hour_char = str(hour)
-        else:
-            # 10=A, 11=B, ..., 23=N
-            hour_char = chr(ord("A") + (hour - 10))
-
-        # For now, return just the hour character
-        # If half-hours need different encoding, adjust here
-        return hour_char
+        return str(hour) if hour < 10 else chr(ord("A") + (hour - 10))
 
     def _get_current_day(self) -> int:
         """Get current day of week (0=Lundi, ..., 5=Samedi, 6=Dimanche)."""
@@ -170,7 +166,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             elif isinstance(item, str):
                 slot_str = item
 
-            if slot_str and len(slot_str) >= 3:
+            if slot_str and len(slot_str) >= MIN_PLANNING_SLOT_LENGTH:
                 # Format: "XYZ" where X=hour char, Y=day digit, Z=mode
                 hour_char = slot_str[0]
                 day_char = slot_str[1]
@@ -181,15 +177,15 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         return None
 
     def _get_heating_program_char(self, slot_data: str) -> str | None:
-        """Extract heating program character from planning slot data ([heure][jour][mode])."""
-        if not slot_data or len(slot_data) < 3:
+        """Extract heating program character from planning slot data."""
+        if not slot_data or len(slot_data) < MIN_PLANNING_SLOT_LENGTH:
             return None
         # Le mode est le dernier caractère
         return slot_data[-1]
 
     def _get_cooling_program_char(self, slot_data: str) -> str | None:
-        """Extract cooling program character from planning slot data ([heure][jour][mode])."""
-        if not slot_data or len(slot_data) < 3:
+        """Extract cooling program character from planning slot data."""
+        if not slot_data or len(slot_data) < MIN_PLANNING_SLOT_LENGTH:
             return None
         # Le mode est aussi le dernier caractère
         return slot_data[-1]
@@ -408,7 +404,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         return mode_mapping.get(air_mode, HVACMode.AUTO)
 
     def _determine_hvac_action(self, air_mode: AirMode) -> HVACAction:
-        """Determine HVAC action based on current vs target temperature, en tenant compte du mode Eco réel."""
+        """Determine HVAC action based on current vs target temperature."""
         if air_mode == AirMode.OFF:
             return HVACAction.OFF
 
@@ -538,7 +534,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
                 return
 
             # If the temperature hasn't changed, retry the API call
-            if abs(current_target - expected_target) > 0.5:
+            if abs(current_target - expected_target) > TEMP_DIFF_THRESHOLD:
                 if attempt <= MAX_RETRIES:
                     _LOGGER.warning(
                         "Temperature not updated after 1 minute (attempt %d/%d). "
