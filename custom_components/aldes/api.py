@@ -34,11 +34,13 @@ class AldesApi:
 
     _API_URL_BASE = "https://aldesiotsuite-aldeswebapi.azurewebsites.net"
     _API_URL_TOKEN = f"{_API_URL_BASE}/oauth2/token"  # noqa: S105
-    _API_URL_PRODUCTS = f"{_API_URL_BASE}/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
-    
+    _API_URL_PRODUCTS = (
+        f"{_API_URL_BASE}/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
+    )
+
     _AUTHORIZATION_HEADER_KEY = "Authorization"
     _TOKEN_TYPE = "Bearer"  # noqa: S105
-    
+
     # Constants from official app analysis
     _API_KEY = "XQibgk1ozo1wjVQcvcoFQqMl3pjEwcRv"
     _USER_AGENT = "AldesConnect/4.21"
@@ -64,20 +66,24 @@ class AldesApi:
         )
         self._temperature_task = asyncio.create_task(self._temperature_worker())
 
-    def _log_request_details(self, method: str, url: str, headers: dict, data: Any = None) -> None:
+    def _log_request_details(
+        self, method: str, url: str, headers: dict, data: Any = None
+    ) -> None:
         """Log request details for debugging with sensitive data masking."""
         _LOGGER.debug("=== Request Details ===")
         _LOGGER.debug("Method: %s", method)
         _LOGGER.debug("URL: %s", url)
-        # Log headers excluding sensitive auth info if needed, though Authorization is standard
-        safe_headers = {k: v for k, v in headers.items() if k.lower() != 'authorization'}
+        # Log headers excluding sensitive auth info if needed
+        safe_headers = {
+            k: v for k, v in headers.items() if k.lower() != "authorization"
+        }
         _LOGGER.debug("Headers: %s", safe_headers)
-        
+
         if data:
             safe_data = data
-            if isinstance(data, dict) and 'password' in data:
+            if isinstance(data, dict) and "password" in data:
                 safe_data = data.copy()
-                safe_data['password'] = '***'
+                safe_data["password"] = "***"
             _LOGGER.debug("Data: %s", safe_data)
 
     @backoff.on_exception(
@@ -89,24 +95,24 @@ class AldesApi:
     async def authenticate(self) -> None:
         """Authenticate and retrieve access token from Aldes API."""
         _LOGGER.info("Authenticating with Aldes API...")
-        
+
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "Accept": "application/json",
             "User-Agent": self._USER_AGENT,
             "apikey": self._API_KEY,
-            "sdkVersion": self._SDK_VERSION
+            "sdkVersion": self._SDK_VERSION,
         }
-        
+
         data: dict[str, str] = {
             "grant_type": "password",
             "username": self._username,
             "password": self._password,
-            "scope": "openid profile email offline_access"
+            "scope": "openid profile email offline_access",
         }
-        
+
         self._log_request_details("POST", self._API_URL_TOKEN, headers, data)
-        
+
         try:
             async with self._session.post(
                 self._API_URL_TOKEN, data=data, headers=headers, timeout=self._timeout
@@ -117,7 +123,10 @@ class AldesApi:
                     _LOGGER.info("Successfully authenticated with Aldes API")
                 else:
                     response_text = await response.text()
-                    error_msg = f"Authentication failed with status {response.status}: {response_text}"
+                    error_msg = (
+                        f"Authentication failed with status {response.status}: "
+                        f"{response_text}"
+                    )
                     _LOGGER.error(error_msg)
                     raise AuthenticationError(error_msg)
         except (ClientError, TimeoutError) as err:
@@ -144,10 +153,8 @@ class AldesApi:
                 kwargs["timeout"] = self._timeout
 
             request_func = getattr(self._session, method.lower())
-            
-            # Log the request before sending (via the interceptor logic mostly, but good to have context)
-            # Note: _request_with_auth_interceptor handles the actual call
-            
+
+            # Log the request before sending
             async with await self._request_with_auth_interceptor(
                 request_func, url, **kwargs
             ) as response:
@@ -226,7 +233,7 @@ class AldesApi:
                     thermostat_name,
                     temperature,
                 ) = await self.queue_target_temperature.get()
-                
+
                 if modem and thermostat_id and thermostat_name and temperature:
                     try:
                         await self.change_temperature(
@@ -234,10 +241,10 @@ class AldesApi:
                         )
                     except Exception:
                         _LOGGER.exception(
-                            "Error changing temperature for %s. Worker continuing.", 
-                            thermostat_name
+                            "Error changing temperature for %s. Worker continuing.",
+                            thermostat_name,
                         )
-                    
+
                     await asyncio.sleep(REQUEST_DELAY)
             except Exception:
                 _LOGGER.exception("Unexpected error in temperature worker")
@@ -311,14 +318,16 @@ class AldesApi:
         self._log_request_details("REQ", url, headers, kwargs.get("json"))
 
         initial_response = await request(url, **kwargs)
-        
+
         if initial_response.status == HTTP_UNAUTHORIZED:
             _LOGGER.info("Token expired (401), re-authenticating...")
             initial_response.close()
             await self.authenticate()
-            
+
             # Update token in headers
-            kwargs["headers"][self._AUTHORIZATION_HEADER_KEY] = self._build_authorization()
+            kwargs["headers"][
+                self._AUTHORIZATION_HEADER_KEY
+            ] = self._build_authorization()
             return await request(url, **kwargs)
 
         return initial_response

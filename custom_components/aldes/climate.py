@@ -95,7 +95,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         self._attr_hvac_action = HVACAction.OFF
         # Store effective mode for use in temperature calculations
         self._effective_air_mode: AirMode | None = None
-        
+
         # Optimistic state management
         self._optimistic_target_temp: float | None = None
         self._optimistic_hvac_mode: HVACMode | None = None
@@ -341,8 +341,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         # --- OPTIMISTIC STATE HANDLING ---
         now = dt_util.now()
         is_optimistic = (
-            self._optimistic_end_time is not None 
-            and now < self._optimistic_end_time
+            self._optimistic_end_time is not None and now < self._optimistic_end_time
         )
 
         # HVAC Mode
@@ -357,15 +356,17 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             if self._effective_air_mode == AirMode.HEAT_ECO
             else 0
         )
-        
+
         if is_optimistic and self._optimistic_target_temp is not None:
             self._attr_target_temperature = self._optimistic_target_temp
         else:
-            self._attr_target_temperature = thermostat.temperature_set - temperature_offset
+            self._attr_target_temperature = (
+                thermostat.temperature_set - temperature_offset
+            )
 
         # Determine action AFTER target_temperature is set
         self._attr_hvac_action = self._determine_hvac_action(self._effective_air_mode)
-        
+
         # Clean up expired optimistic state
         if self._optimistic_end_time is not None and now >= self._optimistic_end_time:
             self._optimistic_end_time = None
@@ -471,8 +472,10 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
 
         # --- ENABLE OPTIMISTIC STATE ---
         self._optimistic_target_temp = target_temperature
-        self._optimistic_end_time = dt_util.now() + timedelta(seconds=OPTIMISTIC_HOLD_DURATION)
-        
+        self._optimistic_end_time = dt_util.now() + timedelta(
+            seconds=OPTIMISTIC_HOLD_DURATION
+        )
+
         # Update internal state immediately
         self._attr_target_temperature = target_temperature
         self._attr_hvac_action = self._determine_hvac_action(effective_mode)
@@ -538,7 +541,8 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             if abs(current_target - expected_target) > 0.5:
                 if attempt <= MAX_RETRIES:
                     _LOGGER.warning(
-                        "Temperature not updated after 1 minute (attempt %d/%d). Retrying API call...",
+                        "Temperature not updated after 1 minute (attempt %d/%d). "
+                        "Retrying API call...",
                         attempt,
                         MAX_RETRIES,
                     )
@@ -550,9 +554,11 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
                         self.thermostat.name,
                         expected_target,
                     )
-                    
+
                     # Extend optimistic state duration
-                    self._optimistic_end_time = dt_util.now() + timedelta(seconds=OPTIMISTIC_HOLD_DURATION)
+                    self._optimistic_end_time = dt_util.now() + timedelta(
+                        seconds=OPTIMISTIC_HOLD_DURATION
+                    )
 
                     # Schedule next verification
                     self._retry_task = asyncio.create_task(
@@ -595,11 +601,13 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         await self.coordinator.api.change_mode(
             self.modem, air_mode.value, CommandUid.AIR_MODE
         )
-        
+
         # --- ENABLE OPTIMISTIC STATE ---
         self._optimistic_hvac_mode = hvac_mode
-        self._optimistic_end_time = dt_util.now() + timedelta(seconds=OPTIMISTIC_HOLD_DURATION)
-        
+        self._optimistic_end_time = dt_util.now() + timedelta(
+            seconds=OPTIMISTIC_HOLD_DURATION
+        )
+
         self._attr_hvac_mode = hvac_mode
         self.async_write_ha_state()
 
@@ -645,7 +653,8 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             if current_mode != expected_mode:
                 if attempt <= MAX_RETRIES:
                     _LOGGER.warning(
-                        "Air mode not updated after 1 minute (attempt %d/%d). Retrying API call...",
+                        "Air mode not updated after 1 minute (attempt %d/%d). "
+                        "Retrying API call...",
                         attempt,
                         MAX_RETRIES,
                     )
@@ -654,9 +663,11 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
                     await self.coordinator.api.change_mode(
                         self.modem, expected_mode.value, CommandUid.AIR_MODE
                     )
-                    
+
                     # Extend optimistic state duration
-                    self._optimistic_end_time = dt_util.now() + timedelta(seconds=OPTIMISTIC_HOLD_DURATION)
+                    self._optimistic_end_time = dt_util.now() + timedelta(
+                        seconds=OPTIMISTIC_HOLD_DURATION
+                    )
 
                     # Schedule next verification
                     self._retry_mode_task = asyncio.create_task(
