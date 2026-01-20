@@ -23,6 +23,20 @@ Cette intégration permet d'ajouter le produit Aldes T.One à Home Assistant via
 | **Surveillance du filtre**                                                                                                                                                                                                     |       ✔️        |         ✔️          |
 | **Carte de planning**                                                                                                                                                                                                          |       ✔️        |         ✔️          |
 
+## Stabilité et Robustesse
+
+Cette intégration a été renforcée pour garantir une connexion stable et sécurisée avec le cloud Aldes :
+
+- **Authentification "Officielle"** : Utilisation des en-têtes (User-Agent, API Key) et de la signature de l'application Android officielle pour éviter les blocages de sécurité (WAF) et garantir la pérennité de l'accès.
+- **Résilience Réseau** : Intégration d'un système de réessai automatique (Backoff exponentiel) qui gère les micro-coupures ou les lenteurs de l'API sans faire planter l'intégration.
+- **File d'attente intelligente** : Les changements de température multiples (ex: changement de mode global) sont traités séquentiellement via un worker dédié pour ne jamais surcharger l'API Aldes.
+- **Sécurité des Logs** : Masquage automatique des mots de passe et données sensibles dans les journaux de débogage.
+
+## Expérience Utilisateur (UX)
+
+- **Zéro Latence (Optimistic State)** : L'interface réagit instantanément à vos commandes. Plus d'effet "flip-flop" où la température revient à l'ancienne valeur pendant quelques secondes. L'intégration maintient l'état souhaité localement en attendant la confirmation du Cloud Aldes.
+- **Persévérance (Auto-Retry)** : Si le Cloud Aldes ne prend pas en compte votre commande immédiatement (perte de message silencieuse), l'intégration le détecte automatiquement après 1 minute et renvoie la commande (jusqu'à 3 fois), tout en maintenant l'affichage correct pour l'utilisateur.
+
 ## Installation
 
 Dans HACS, ajoutez le dépôt personnalisé <https://github.com/tiagfernandes/homeassistant-aldes> et sélectionnez la catégorie Intégration.
