@@ -31,7 +31,7 @@ def coerce_time(value: str | dt_time | None) -> dt_time:
         return value
     if isinstance(value, str):
         try:
-            return datetime.strptime(value, "%H:%M:%S").time()
+            return datetime.strptime(value, "%H:%M:%S").replace(tzinfo=UTC).time()
         except ValueError:
             return dt_time(0, 0, 0)
     return dt_time(0, 0, 0)
@@ -101,7 +101,7 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
         url = "/aldes_planning_card.js"
         name = "aldes:planning_card"
 
-        async def get(self, request):  # noqa: ARG002
+        async def get(self, request: "web.Request") -> "web.Response":  # noqa: ARG002
             """Serve the card JavaScript file."""
             card_path = Path(__file__).parent / "lovelace" / "aldes-planning-card.js"
             try:
@@ -122,10 +122,10 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
     _LOGGER.info("Aldes planning card view registered at /aldes_planning_card.js")
 
 
-async def _register_services(hass: HomeAssistant) -> None:  # noqa: C901, PLR0915
+async def _register_services(hass: HomeAssistant) -> None:
     """Register Aldes services."""
 
-    def _get_coordinator_from_call(call: ServiceCall):
+    def _get_coordinator_from_call(call: ServiceCall) -> AldesDataUpdateCoordinator | None:
         """Get coordinator from service call data."""
         device_id = call.data.get("device_id")
         entity_id = call.data.get("entity_id")
@@ -197,7 +197,7 @@ async def _register_services(hass: HomeAssistant) -> None:  # noqa: C901, PLR091
         ),
     )
 
-    async def async_set_holidays(call: ServiceCall) -> None:  # noqa: PLR0915, PLR0912
+    async def async_set_holidays(call: ServiceCall) -> None:
         """Set holidays mode for an Aldes device."""
         from datetime import date as dt_date  # noqa: PLC0415
         from datetime import datetime  # noqa: PLC0415
@@ -356,7 +356,7 @@ async def _register_services(hass: HomeAssistant) -> None:  # noqa: C901, PLR091
             # Try different string formats
             if len(start_date_input) == 15 and start_date_input.endswith("Z"):
                 # Format: 20251210000000Z
-                start_datetime = datetime.strptime(start_date_input, "%Y%m%d%H%M%SZ")
+                start_datetime = datetime.strptime(start_date_input, "%Y%m%d%H%M%SZ").replace(tzinfo=UTC)
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:

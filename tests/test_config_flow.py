@@ -1,10 +1,11 @@
 """Test the Aldes config flow."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
 
+from custom_components.aldes.api import AuthenticationError
 from custom_components.aldes.const import DOMAIN
 
 
@@ -47,7 +48,6 @@ async def test_form_invalid_auth(hass):
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    from custom_components.aldes.api import AuthenticationError
 
     with patch(
         "custom_components.aldes.config_flow.AldesApi.authenticate",
