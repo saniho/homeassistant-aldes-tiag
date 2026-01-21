@@ -11,13 +11,10 @@ from datetime import time as dt_time
 from pathlib import Path
 
 import voluptuous as vol
-from aiohttp import web
-from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers import entity_registry as er
-from homeassistant.util import dt as dt_util
 
 from .api import AldesApi
 from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN, PLATFORMS
@@ -34,7 +31,7 @@ def coerce_time(value: str | dt_time | None) -> dt_time:
         return value
     if isinstance(value, str):
         try:
-            return datetime.strptime(value, "%H:%M:%S").replace(tzinfo=UTC).time()
+            return datetime.strptime(value, "%H:%M:%S").time()
         except ValueError:
             return dt_time(0, 0, 0)
     return dt_time(0, 0, 0)
@@ -92,6 +89,10 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def _register_lovelace_resources(hass: HomeAssistant) -> None:
     """Register Lovelace card resources."""
+    from aiohttp import web  # noqa: PLC0415
+    from homeassistant.components.http import (  # noqa: PLC0415
+        HomeAssistantView,
+    )
 
     class AldesCardView(HomeAssistantView):
         """View to serve the Aldes planning card."""
@@ -100,7 +101,7 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
         url = "/aldes_planning_card.js"
         name = "aldes:planning_card"
 
-        async def get(self, request: web.Request) -> web.Response:
+        async def get(self, request):  # noqa: ARG002
             """Serve the card JavaScript file."""
             card_path = Path(__file__).parent / "lovelace" / "aldes-planning-card.js"
             try:
@@ -114,66 +115,63 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
                     headers={"Cache-Control": "no-cache"},
                 )
             except FileNotFoundError:
-                _LOGGER.exception("Card file not found: %s", card_path)
+                _LOGGER.error("Card file not found: %s", card_path)  # noqa: TRY400
                 return web.Response(text="// Card not found", status=404)
 
     hass.http.register_view(AldesCardView())
     _LOGGER.info("Aldes planning card view registered at /aldes_planning_card.js")
 
 
-def _get_coordinator_from_call(
-    hass: HomeAssistant, call: ServiceCall
-) -> AldesDataUpdateCoordinator | None:
-    """Get coordinator from service call data."""
-    device_id = call.data.get("device_id")
-    entity_id = call.data.get("entity_id")
-
-    # If device_id is provided, use it
-    if device_id:
-        registry = er.async_get(hass)
-        # Find any entity for this device
-        entities = er.async_entries_for_device(registry, device_id)
-        for entity in entities:
-            if entity.platform == DOMAIN:
-                entry_id = entity.config_entry_id
-                coordinator = hass.data[DOMAIN].get(entry_id)
-                if coordinator:
-                    return coordinator
-        _LOGGER.error("No Aldes entities found for device %s", device_id)
-        return None
-
-    # If entity_id is provided, use it
-    if entity_id:
-        registry = er.async_get(hass)
-        entity_entry = registry.async_get(entity_id)
-        if not entity_entry:
-            _LOGGER.error("Entity %s not found", entity_id)
-            return None
-        entry_id = entity_entry.config_entry_id
-        coordinator = hass.data[DOMAIN].get(entry_id)
-        if not coordinator:
-            _LOGGER.error("Coordinator not found for entity %s", entity_id)
-        return coordinator
-
-    # If neither is provided, use the first available coordinator
-    coordinators = list(hass.data[DOMAIN].values())
-    if coordinators:
-        _LOGGER.info("Using first available Aldes device")
-        return coordinators[0]
-
-    _LOGGER.error("No Aldes device found")
-    return None
-
-
-async def _register_services(hass: HomeAssistant) -> None:
+async def _register_services(hass: HomeAssistant) -> None:  # noqa: C901, PLR0915
     """Register Aldes services."""
+
+    def _get_coordinator_from_call(call: ServiceCall):
+        """Get coordinator from service call data."""
+        device_id = call.data.get("device_id")
+        entity_id = call.data.get("entity_id")
+
+        # If device_id is provided, use it
+        if device_id:
+            registry = er.async_get(hass)
+            # Find any entity for this device
+            entities = er.async_entries_for_device(registry, device_id)
+            for entity in entities:
+                if entity.platform == DOMAIN:
+                    entry_id = entity.config_entry_id
+                    coordinator = hass.data[DOMAIN].get(entry_id)
+                    if coordinator:
+                        return coordinator
+            _LOGGER.error("No Aldes entities found for device %s", device_id)
+            return None
+
+        # If entity_id is provided, use it
+        if entity_id:
+            registry = er.async_get(hass)
+            entity_entry = registry.async_get(entity_id)
+            if not entity_entry:
+                _LOGGER.error("Entity %s not found", entity_id)
+                return None
+            entry_id = entity_entry.config_entry_id
+            coordinator = hass.data[DOMAIN].get(entry_id)
+            if not coordinator:
+                _LOGGER.error("Coordinator not found for entity %s", entity_id)
+            return coordinator
+
+        # If neither is provided, use the first available coordinator
+        coordinators = list(hass.data[DOMAIN].values())
+        if coordinators:
+            _LOGGER.info("Using first available Aldes device")
+            return coordinators[0]
+
+        _LOGGER.error("No Aldes device found")
+        return None
 
     async def async_set_week_planning(call: ServiceCall) -> None:
         """Set week planning (mode A/B) for an Aldes device."""
         planning: str = call.data["planning"]
         mode: str = call.data.get("mode", "A")
 
-        coordinator = _get_coordinator_from_call(hass, call)
+        coordinator = _get_coordinator_from_call(call)
         if not coordinator:
             return
 
@@ -199,9 +197,10 @@ async def _register_services(hass: HomeAssistant) -> None:
         ),
     )
 
-    async def async_set_holidays(call: ServiceCall) -> None:
+    async def async_set_holidays(call: ServiceCall) -> None:  # noqa: PLR0915, PLR0912
         """Set holidays mode for an Aldes device."""
-        from datetime import date as dt_date  # pylint: disable=import-outside-toplevel
+        from datetime import date as dt_date  # noqa: PLC0415
+        from datetime import datetime  # noqa: PLC0415
 
         start_date_input = call.data["start_date"]
         start_time_input = call.data.get("start_time", dt_time(0, 0, 0))
@@ -227,7 +226,9 @@ async def _register_services(hass: HomeAssistant) -> None:
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    start_date_parsed = datetime.fromisoformat(start_date_input)
+                    start_date_parsed = datetime.fromisoformat(
+                        start_date_input.replace("Z", "+00:00")
+                    )
                     start_datetime = datetime.combine(
                         start_date_parsed.date(), start_time_input
                     )
@@ -254,7 +255,9 @@ async def _register_services(hass: HomeAssistant) -> None:
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    end_date_parsed = datetime.fromisoformat(end_date_input)
+                    end_date_parsed = datetime.fromisoformat(
+                        end_date_input.replace("Z", "+00:00")
+                    )
                     end_datetime = datetime.combine(
                         end_date_parsed.date(), end_time_input
                     )
@@ -264,6 +267,10 @@ async def _register_services(hass: HomeAssistant) -> None:
         else:
             _LOGGER.error("Unexpected end_date type: %s", type(end_date_input))
             return
+
+        # Convert to UTC (API expects UTC timezone)
+        # Assume local timezone if not specified
+        from homeassistant.util import dt as dt_util  # noqa: PLC0415
 
         if start_datetime.tzinfo is None:
             start_datetime = dt_util.as_local(start_datetime)
@@ -277,7 +284,7 @@ async def _register_services(hass: HomeAssistant) -> None:
         start_date = start_datetime_utc.strftime("%Y%m%d%H%M%SZ")
         end_date = end_datetime_utc.strftime("%Y%m%d%H%M%SZ")
 
-        coordinator = _get_coordinator_from_call(hass, call)
+        coordinator = _get_coordinator_from_call(call)
         if not coordinator:
             return
 
@@ -307,7 +314,7 @@ async def _register_services(hass: HomeAssistant) -> None:
 
     async def async_cancel_holidays(call: ServiceCall) -> None:
         """Cancel holidays mode for an Aldes device."""
-        coordinator = _get_coordinator_from_call(hass, call)
+        coordinator = _get_coordinator_from_call(call)
         if not coordinator:
             return
 
@@ -333,7 +340,8 @@ async def _register_services(hass: HomeAssistant) -> None:
 
     async def async_set_frost_protection(call: ServiceCall) -> None:
         """Set frost protection mode for an Aldes device."""
-        from datetime import date as dt_date  # pylint: disable=import-outside-toplevel
+        from datetime import date as dt_date  # noqa: PLC0415
+        from datetime import datetime  # noqa: PLC0415
 
         start_date_input = call.data["start_date"]
         start_time_input = call.data.get("start_time", dt_time(0, 0, 0))
@@ -348,18 +356,18 @@ async def _register_services(hass: HomeAssistant) -> None:
             # Try different string formats
             if len(start_date_input) == 15 and start_date_input.endswith("Z"):
                 # Format: 20251210000000Z
-                start_datetime = datetime.strptime(
-                    start_date_input, "%Y%m%d%H%M%SZ"
-                ).replace(tzinfo=UTC)
+                start_datetime = datetime.strptime(start_date_input, "%Y%m%d%H%M%SZ")
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    start_date_parsed = datetime.fromisoformat(start_date_input)
+                    start_date_parsed = datetime.fromisoformat(
+                        start_date_input.replace("Z", "+00:00")
+                    )
                     start_datetime = datetime.combine(
                         start_date_parsed.date(), start_time_input
                     )
                 except ValueError:
-                    _LOGGER.exception("Invalid start_date format: %s", start_date_input)
+                    _LOGGER.error("Invalid start_date format: %s", start_date_input)
                     return
         else:
             _LOGGER.error("Unexpected start_date type: %s", type(start_date_input))
@@ -367,6 +375,8 @@ async def _register_services(hass: HomeAssistant) -> None:
 
         # Convert to UTC (API expects UTC timezone)
         # Assume local timezone if not specified
+        from homeassistant.util import dt as dt_util  # noqa: PLC0415
+
         if start_datetime.tzinfo is None:
             start_datetime = dt_util.as_local(start_datetime)
         start_datetime_utc = start_datetime.astimezone(UTC)
@@ -374,7 +384,7 @@ async def _register_services(hass: HomeAssistant) -> None:
         # Convert to API format yyyyMMddHHmmssZ
         start_date = start_datetime_utc.strftime("%Y%m%d%H%M%SZ")
 
-        coordinator = _get_coordinator_from_call(hass, call)
+        coordinator = _get_coordinator_from_call(call)
         if not coordinator:
             return
 
