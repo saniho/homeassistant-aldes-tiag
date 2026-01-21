@@ -12,6 +12,8 @@
   "requirements": [
     "backoff>=2.2.1"
   ],
-  "version": "v3.3.0",
-  "reload": "CONFIG_ENTRY"
+  "dependencies": [
+    "http"
+  ],
+  "version": "v3.3.0"
 }
