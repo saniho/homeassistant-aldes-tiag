@@ -125,7 +125,9 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
 async def _register_services(hass: HomeAssistant) -> None:
     """Register Aldes services."""
 
-    def _get_coordinator_from_call(call: ServiceCall) -> AldesDataUpdateCoordinator | None:
+    def _get_coordinator_from_call(
+        call: ServiceCall,
+    ) -> AldesDataUpdateCoordinator | None:
         """Get coordinator from service call data."""
         device_id = call.data.get("device_id")
         entity_id = call.data.get("entity_id")
@@ -356,7 +358,9 @@ async def _register_services(hass: HomeAssistant) -> None:
             # Try different string formats
             if len(start_date_input) == 15 and start_date_input.endswith("Z"):
                 # Format: 20251210000000Z
-                start_datetime = datetime.strptime(start_date_input, "%Y%m%d%H%M%SZ").replace(tzinfo=UTC)
+                start_datetime = datetime.strptime(
+                    start_date_input, "%Y%m%d%H%M%SZ"
+                ).replace(tzinfo=UTC)
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:

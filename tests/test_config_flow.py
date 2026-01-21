@@ -48,7 +48,6 @@ async def test_form_invalid_auth(hass):
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-
     with patch(
         "custom_components.aldes.config_flow.AldesApi.authenticate",
         side_effect=AuthenticationError,
