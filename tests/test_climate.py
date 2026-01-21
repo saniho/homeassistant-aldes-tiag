@@ -85,8 +85,11 @@ async def test_optimistic_state_temperature(climate_entity):
     assert climate_entity.target_temperature == 22
 
     # Fast forward time past optimistic duration (60s)
+    # Calculate the future time first
+    future_time = dt_util.now() + timedelta(seconds=61)
+
     with patch("custom_components.aldes.climate.dt_util.now") as mock_now:
-        mock_now.return_value = dt_util.now() + timedelta(seconds=61)
+        mock_now.return_value = future_time
 
         # Update again
         climate_entity._async_update_attrs()

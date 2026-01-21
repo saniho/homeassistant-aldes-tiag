@@ -62,10 +62,17 @@ class AldesApi:
         self._timeout = ClientTimeout(total=30)
         self._cache: dict[str, Any] = {}
         self._cache_timestamp: dict[str, datetime] = {}
-        self.queue_target_temperature: asyncio.Queue[tuple[str, int, str, Any]] = (
-            asyncio.Queue()
-        )
-        self._temperature_task = asyncio.create_task(self._temperature_worker())
+        self.queue_target_temperature: (
+            asyncio.Queue[tuple[str, int, str, Any]] | None
+        ) = None
+        self._temperature_task: asyncio.Task[None] | None = None
+
+    async def _ensure_temperature_worker_started(self) -> None:
+        """Ensure the temperature worker task is started."""
+        if self._temperature_task is None or self._temperature_task.done():
+            if self.queue_target_temperature is None:
+                self.queue_target_temperature = asyncio.Queue()
+            self._temperature_task = asyncio.create_task(self._temperature_worker())
 
     def _log_request_details(
         self, method: str, url: str, headers: dict, data: Any = None
@@ -228,6 +235,11 @@ class AldesApi:
         """Process temperature change requests from queue with delay between each."""
         while True:
             try:
+                # Ensure queue exists before getting from it
+                if self.queue_target_temperature is None:
+                    await asyncio.sleep(1)
+                    continue
+
                 (
                     modem,
                     thermostat_id,
@@ -253,8 +265,9 @@ class AldesApi:
             finally:
                 # Ensure task_done is called even if processing failed
                 # to avoid blocking join() calls if used in future
-                with contextlib.suppress(ValueError):
-                    self.queue_target_temperature.task_done()
+                if self.queue_target_temperature is not None:
+                    with contextlib.suppress(ValueError):
+                        self.queue_target_temperature.task_done()
 
     async def set_target_temperature(
         self,
@@ -264,6 +277,7 @@ class AldesApi:
         target_temperature: Any,
     ) -> None:
         """Set target temperature."""
+        await self._ensure_temperature_worker_started()
         await self.queue_target_temperature.put(
             (modem, thermostat_id, thermostat_name, target_temperature)
         )
