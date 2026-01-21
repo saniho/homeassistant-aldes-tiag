@@ -134,7 +134,12 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         now = dt_util.now()
         # Hours: 0-9 = '0'-'9', 10-23 = 'A'-'N'
         hour = now.hour
-        return str(hour) if hour < 10 else chr(ord("A") + (hour - 10))
+        first_letter_hour = 10
+        return (
+            str(hour)
+            if hour < first_letter_hour
+            else chr(ord("A") + (hour - first_letter_hour))
+        )
 
     def _get_current_day(self) -> int:
         """Get current day of week (0=Lundi, ..., 5=Samedi, 6=Dimanche)."""

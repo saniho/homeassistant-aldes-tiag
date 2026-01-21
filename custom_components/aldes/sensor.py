@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -413,7 +413,7 @@ def _parse_utc_to_local(timestamp_str: str | None) -> datetime | None:
         return None
 
     try:
-        utc_dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        utc_dt = datetime.fromisoformat(timestamp_str)
         return dt_util.as_local(utc_dt)
     except (ValueError, AttributeError) as e:
         _LOGGER.warning("Failed to parse timestamp '%s': %s", timestamp_str, e)
@@ -520,7 +520,7 @@ class BaseStatisticsSensor(BaseAldesSensorEntity):
         """Fetch statistics from API."""
         try:
             # Get current month's data
-            end_date = datetime.utcnow()
+            end_date = datetime.now(tz=UTC)
             start_date = end_date.replace(
                 day=1, hour=0, minute=0, second=0, microsecond=0
             )

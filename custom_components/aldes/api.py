@@ -40,7 +40,7 @@ class AldesApi:
     )
 
     _AUTHORIZATION_HEADER_KEY = "Authorization"
-    _TOKEN_TYPE = "Bearer"  # noqa: S105
+    _TOKEN_TYPE = "Bearer"
 
     # Constants from official app analysis
     _API_KEY = "XQibgk1ozo1wjVQcvcoFQqMl3pjEwcRv"

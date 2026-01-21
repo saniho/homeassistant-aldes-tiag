@@ -101,7 +101,7 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
         url = "/aldes_planning_card.js"
         name = "aldes:planning_card"
 
-        async def get(self, request: "web.Request") -> "web.Response":  # noqa: ARG002
+        async def get(self, request: "web.Request") -> "web.Response":
             """Serve the card JavaScript file."""
             card_path = Path(__file__).parent / "lovelace" / "aldes-planning-card.js"
             try:
@@ -115,7 +115,7 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
                     headers={"Cache-Control": "no-cache"},
                 )
             except FileNotFoundError:
-                _LOGGER.error("Card file not found: %s", card_path)  # noqa: TRY400
+                _LOGGER.error("Card file not found: %s", card_path)
                 return web.Response(text="// Card not found", status=404)
 
     hass.http.register_view(AldesCardView())
@@ -228,9 +228,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    start_date_parsed = datetime.fromisoformat(
-                        start_date_input.replace("Z", "+00:00")
-                    )
+                    start_date_parsed = datetime.fromisoformat(start_date_input)
                     start_datetime = datetime.combine(
                         start_date_parsed.date(), start_time_input
                     )
@@ -257,9 +255,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    end_date_parsed = datetime.fromisoformat(
-                        end_date_input.replace("Z", "+00:00")
-                    )
+                    end_date_parsed = datetime.fromisoformat(end_date_input)
                     end_datetime = datetime.combine(
                         end_date_parsed.date(), end_time_input
                     )
@@ -356,7 +352,10 @@ async def _register_services(hass: HomeAssistant) -> None:
             start_datetime = datetime.combine(start_date_input, start_time_input)
         elif isinstance(start_date_input, str):
             # Try different string formats
-            if len(start_date_input) == 15 and start_date_input.endswith("Z"):
+            api_date_format_length = 15
+            if len(
+                start_date_input
+            ) == api_date_format_length and start_date_input.endswith("Z"):
                 # Format: 20251210000000Z
                 start_datetime = datetime.strptime(
                     start_date_input, "%Y%m%d%H%M%SZ"
@@ -364,9 +363,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    start_date_parsed = datetime.fromisoformat(
-                        start_date_input.replace("Z", "+00:00")
-                    )
+                    start_date_parsed = datetime.fromisoformat(start_date_input)
                     start_datetime = datetime.combine(
                         start_date_parsed.date(), start_time_input
                     )
