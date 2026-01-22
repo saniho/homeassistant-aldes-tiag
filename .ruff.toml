@@ -45,5 +45,5 @@ keep-runtime-typing = true
 max-complexity = 25
 
 [lint.per-file-ignores]
-"tests/*" = ["S101", "ANN001", "ANN201", "SLF001", "PLR2004", "S105", "E501", "BLE001"]
+"tests/*" = ["S101", "ANN001", "ANN201", "SLF001", "PLR2004", "S105", "E501", "BLE001", "PLC0415"]
 "custom_components/aldes/__init__.py" = ["C901", "PLR0915", "PLR0912", "PLR0913"]
