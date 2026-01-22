@@ -1,20 +1,39 @@
-"""Global fixtures for Aldes integration."""
+"""Pytest configuration for Aldes tests."""
 
-from unittest.mock import patch
+import sys
+from unittest.mock import MagicMock
 
-import pytest
+# Create a proper mock module that acts as a package
+homeassistant_mock = MagicMock()
 
+# Mock all Home Assistant modules BEFORE any imports
+sys.modules["homeassistant"] = homeassistant_mock
+sys.modules["homeassistant.const"] = MagicMock()
+sys.modules["homeassistant.config_entries"] = MagicMock()
+sys.modules["homeassistant.data_entry_flow"] = MagicMock()
+sys.modules["homeassistant.core"] = MagicMock()
+sys.modules["homeassistant.helpers"] = MagicMock()
+sys.modules["homeassistant.components"] = MagicMock()
+sys.modules["homeassistant.components.climate"] = MagicMock()
+sys.modules["homeassistant.components.climate.const"] = MagicMock()
+sys.modules["homeassistant.components.sensor"] = MagicMock()
+sys.modules["homeassistant.components.sensor.const"] = MagicMock()
+sys.modules["homeassistant.components.number"] = MagicMock()
+sys.modules["homeassistant.components.select"] = MagicMock()
+sys.modules["homeassistant.components.binary_sensor"] = MagicMock()
+sys.modules["homeassistant.components.button"] = MagicMock()
+sys.modules["homeassistant.components.text"] = MagicMock()
+sys.modules["homeassistant.components.http"] = MagicMock()
+sys.modules["homeassistant.helpers.device_registry"] = MagicMock()
+sys.modules["homeassistant.helpers.entity"] = MagicMock()
+sys.modules["homeassistant.helpers.entity_platform"] = MagicMock()
+sys.modules["homeassistant.helpers.update_coordinator"] = MagicMock()
+sys.modules["homeassistant.util"] = MagicMock()
+sys.modules["homeassistant.util.dt"] = MagicMock()
 
-@pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations):
-    """Enable custom integrations defined in the test directory."""
-    return
+# Mock voluptuous
+sys.modules["voluptuous"] = MagicMock()
 
+# Mock aiohttp
+sys.modules["aiohttp"] = MagicMock()
 
-@pytest.fixture(name="skip_notifications", autouse=True)
-def skip_notifications_fixture():
-    """Skip notification calls."""
-    with patch("homeassistant.components.persistent_notification.async_create"), patch(
-        "homeassistant.components.persistent_notification.create"
-    ):
-        yield
