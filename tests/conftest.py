@@ -36,4 +36,3 @@ sys.modules["voluptuous"] = MagicMock()
 
 # Mock aiohttp
 sys.modules["aiohttp"] = MagicMock()
-
