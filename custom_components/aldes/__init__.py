@@ -31,7 +31,7 @@ def coerce_time(value: str | dt_time | None) -> dt_time:
         return value
     if isinstance(value, str):
         try:
-            return datetime.strptime(value, "%H:%M:%S").time()
+            return datetime.strptime(value, "%H:%M:%S").replace(tzinfo=UTC).time()
         except ValueError:
             return dt_time(0, 0, 0)
     return dt_time(0, 0, 0)
@@ -89,8 +89,10 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def _register_lovelace_resources(hass: HomeAssistant) -> None:
     """Register Lovelace card resources."""
-    from aiohttp import web
-    from homeassistant.components.http import HomeAssistantView
+    from aiohttp import web  # noqa: PLC0415
+    from homeassistant.components.http import (  # noqa: PLC0415
+        HomeAssistantView,
+    )
 
     class AldesCardView(HomeAssistantView):
         """View to serve the Aldes planning card."""
@@ -99,7 +101,7 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
         url = "/aldes_planning_card.js"
         name = "aldes:planning_card"
 
-        async def get(self, request):
+        async def get(self, request: "web.Request") -> "web.Response":
             """Serve the card JavaScript file."""
             card_path = Path(__file__).parent / "lovelace" / "aldes-planning-card.js"
             try:
@@ -123,7 +125,9 @@ async def _register_lovelace_resources(hass: HomeAssistant) -> None:
 async def _register_services(hass: HomeAssistant) -> None:
     """Register Aldes services."""
 
-    def _get_coordinator_from_call(call: ServiceCall):
+    def _get_coordinator_from_call(
+        call: ServiceCall,
+    ) -> AldesDataUpdateCoordinator | None:
         """Get coordinator from service call data."""
         device_id = call.data.get("device_id")
         entity_id = call.data.get("entity_id")
@@ -197,8 +201,8 @@ async def _register_services(hass: HomeAssistant) -> None:
 
     async def async_set_holidays(call: ServiceCall) -> None:
         """Set holidays mode for an Aldes device."""
-        from datetime import date as dt_date
-        from datetime import datetime
+        from datetime import date as dt_date  # noqa: PLC0415
+        from datetime import datetime  # noqa: PLC0415
 
         start_date_input = call.data["start_date"]
         start_time_input = call.data.get("start_time", dt_time(0, 0, 0))
@@ -224,9 +228,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    start_date_parsed = datetime.fromisoformat(
-                        start_date_input.replace("Z", "+00:00")
-                    )
+                    start_date_parsed = datetime.fromisoformat(start_date_input)
                     start_datetime = datetime.combine(
                         start_date_parsed.date(), start_time_input
                     )
@@ -253,9 +255,7 @@ async def _register_services(hass: HomeAssistant) -> None:
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    end_date_parsed = datetime.fromisoformat(
-                        end_date_input.replace("Z", "+00:00")
-                    )
+                    end_date_parsed = datetime.fromisoformat(end_date_input)
                     end_datetime = datetime.combine(
                         end_date_parsed.date(), end_time_input
                     )
@@ -268,7 +268,7 @@ async def _register_services(hass: HomeAssistant) -> None:
 
         # Convert to UTC (API expects UTC timezone)
         # Assume local timezone if not specified
-        from homeassistant.util import dt as dt_util
+        from homeassistant.util import dt as dt_util  # noqa: PLC0415
 
         if start_datetime.tzinfo is None:
             start_datetime = dt_util.as_local(start_datetime)
@@ -338,8 +338,8 @@ async def _register_services(hass: HomeAssistant) -> None:
 
     async def async_set_frost_protection(call: ServiceCall) -> None:
         """Set frost protection mode for an Aldes device."""
-        from datetime import date as dt_date
-        from datetime import datetime
+        from datetime import date as dt_date  # noqa: PLC0415
+        from datetime import datetime  # noqa: PLC0415
 
         start_date_input = call.data["start_date"]
         start_time_input = call.data.get("start_time", dt_time(0, 0, 0))
@@ -352,15 +352,18 @@ async def _register_services(hass: HomeAssistant) -> None:
             start_datetime = datetime.combine(start_date_input, start_time_input)
         elif isinstance(start_date_input, str):
             # Try different string formats
-            if len(start_date_input) == 15 and start_date_input.endswith("Z"):
+            api_date_format_length = 15
+            if len(
+                start_date_input
+            ) == api_date_format_length and start_date_input.endswith("Z"):
                 # Format: 20251210000000Z
-                start_datetime = datetime.strptime(start_date_input, "%Y%m%d%H%M%SZ")
+                start_datetime = datetime.strptime(
+                    start_date_input, "%Y%m%d%H%M%SZ"
+                ).replace(tzinfo=UTC)
             else:
                 # Format: YYYY-MM-DD or other ISO formats
                 try:
-                    start_date_parsed = datetime.fromisoformat(
-                        start_date_input.replace("Z", "+00:00")
-                    )
+                    start_date_parsed = datetime.fromisoformat(start_date_input)
                     start_datetime = datetime.combine(
                         start_date_parsed.date(), start_time_input
                     )
@@ -373,7 +376,7 @@ async def _register_services(hass: HomeAssistant) -> None:
 
         # Convert to UTC (API expects UTC timezone)
         # Assume local timezone if not specified
-        from homeassistant.util import dt as dt_util
+        from homeassistant.util import dt as dt_util  # noqa: PLC0415
 
         if start_datetime.tzinfo is None:
             start_datetime = dt_util.as_local(start_datetime)

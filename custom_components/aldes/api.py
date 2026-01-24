@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -32,10 +33,19 @@ class CommandUid(IntEnum):
 class AldesApi:
     """Aldes API client."""
 
-    _API_URL_TOKEN = "https://aldesiotsuite-aldeswebapi.azurewebsites.net/oauth2/token"  # noqa: S105
-    _API_URL_PRODUCTS = "https://aldesiotsuite-aldeswebapi.azurewebsites.net/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
+    _API_URL_BASE = "https://aldesiotsuite-aldeswebapi.azurewebsites.net"
+    _API_URL_TOKEN = f"{_API_URL_BASE}/oauth2/token"
+    _API_URL_PRODUCTS = (
+        f"{_API_URL_BASE}/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
+    )
+
     _AUTHORIZATION_HEADER_KEY = "Authorization"
-    _TOKEN_TYPE = "Bearer"  # noqa: S105
+    _TOKEN_TYPE = "Bearer"
+
+    # Constants from official app analysis
+    _API_KEY = "XQibgk1ozo1wjVQcvcoFQqMl3pjEwcRv"
+    _USER_AGENT = "AldesConnect/4.21"
+    _SDK_VERSION = "a:17.0.0"
 
     def __init__(
         self,
@@ -52,29 +62,79 @@ class AldesApi:
         self._timeout = ClientTimeout(total=30)
         self._cache: dict[str, Any] = {}
         self._cache_timestamp: dict[str, datetime] = {}
-        self.queue_target_temperature: asyncio.Queue[tuple[str, int, str, Any]] = (
-            asyncio.Queue()
-        )
-        self._temperature_task = asyncio.create_task(self._temperature_worker())
+        self.queue_target_temperature: (
+            asyncio.Queue[tuple[str, int, str, Any]] | None
+        ) = None
+        self._temperature_task: asyncio.Task[None] | None = None
 
+    async def _ensure_temperature_worker_started(self) -> None:
+        """Ensure the temperature worker task is started."""
+        if self._temperature_task is None or self._temperature_task.done():
+            if self.queue_target_temperature is None:
+                self.queue_target_temperature = asyncio.Queue()
+            self._temperature_task = asyncio.create_task(self._temperature_worker())
+
+    def _log_request_details(
+        self, method: str, url: str, headers: dict, data: Any = None
+    ) -> None:
+        """Log request details for debugging with sensitive data masking."""
+        _LOGGER.debug("=== Request Details ===")
+        _LOGGER.debug("Method: %s", method)
+        _LOGGER.debug("URL: %s", url)
+        # Log headers excluding sensitive auth info if needed
+        safe_headers = {
+            k: v for k, v in headers.items() if k.lower() != "authorization"
+        }
+        _LOGGER.debug("Headers: %s", safe_headers)
+
+        if data:
+            safe_data = data
+            if isinstance(data, dict) and "password" in data:
+                safe_data = data.copy()
+                safe_data["password"] = "***"
+            _LOGGER.debug("Data: %s", safe_data)
+
+    @backoff.on_exception(
+        backoff.expo,
+        (ClientError, TimeoutError),
+        max_tries=3,
+        max_time=60,
+    )
     async def authenticate(self) -> None:
         """Authenticate and retrieve access token from Aldes API."""
         _LOGGER.info("Authenticating with Aldes API...")
+
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": self._USER_AGENT,
+            "apikey": self._API_KEY,
+            "sdkVersion": self._SDK_VERSION,
+        }
+
         data: dict[str, str] = {
             "grant_type": "password",
             "username": self._username,
             "password": self._password,
+            "scope": "openid profile email offline_access",
         }
+
+        self._log_request_details("POST", self._API_URL_TOKEN, headers, data)
+
         try:
             async with self._session.post(
-                self._API_URL_TOKEN, data=data, timeout=self._timeout
+                self._API_URL_TOKEN, data=data, headers=headers, timeout=self._timeout
             ) as response:
-                json = await response.json()
                 if response.status == HTTP_OK:
-                    self._token = json["access_token"]
+                    json_resp = await response.json()
+                    self._token = json_resp["access_token"]
                     _LOGGER.info("Successfully authenticated with Aldes API")
                 else:
-                    error_msg = f"Authentication failed with status {response.status}"
+                    response_text = await response.text()
+                    error_msg = (
+                        f"Authentication failed with status {response.status}: "
+                        f"{response_text}"
+                    )
                     _LOGGER.error(error_msg)
                     raise AuthenticationError(error_msg)
         except (ClientError, TimeoutError) as err:
@@ -101,6 +161,8 @@ class AldesApi:
                 kwargs["timeout"] = self._timeout
 
             request_func = getattr(self._session, method.lower())
+
+            # Log the request before sending
             async with await self._request_with_auth_interceptor(
                 request_func, url, **kwargs
             ) as response:
@@ -172,18 +234,40 @@ class AldesApi:
     async def _temperature_worker(self) -> None:
         """Process temperature change requests from queue with delay between each."""
         while True:
-            (
-                modem,
-                thermostat_id,
-                thermostat_name,
-                temperature,
-            ) = await self.queue_target_temperature.get()
-            if modem and thermostat_id and thermostat_name and temperature:
-                await self.change_temperature(
-                    modem, thermostat_id, thermostat_name, temperature
-                )
+            try:
+                # Ensure queue exists before getting from it
+                if self.queue_target_temperature is None:
+                    await asyncio.sleep(1)
+                    continue
+
+                (
+                    modem,
+                    thermostat_id,
+                    thermostat_name,
+                    temperature,
+                ) = await self.queue_target_temperature.get()
+
+                if modem and thermostat_id and thermostat_name and temperature:
+                    try:
+                        await self.change_temperature(
+                            modem, thermostat_id, thermostat_name, temperature
+                        )
+                    except Exception:
+                        _LOGGER.exception(
+                            "Error changing temperature for %s. Worker continuing.",
+                            thermostat_name,
+                        )
+
+                    await asyncio.sleep(REQUEST_DELAY)
+            except Exception:
+                _LOGGER.exception("Unexpected error in temperature worker")
                 await asyncio.sleep(REQUEST_DELAY)
-            self.queue_target_temperature.task_done()
+            finally:
+                # Ensure task_done is called even if processing failed
+                # to avoid blocking join() calls if used in future
+                if self.queue_target_temperature is not None:
+                    with contextlib.suppress(ValueError):
+                        self.queue_target_temperature.task_done()
 
     async def set_target_temperature(
         self,
@@ -193,6 +277,7 @@ class AldesApi:
         target_temperature: Any,
     ) -> None:
         """Set target temperature."""
+        await self._ensure_temperature_worker_started()
         await self.queue_target_temperature.put(
             (modem, thermostat_id, thermostat_name, target_temperature)
         )
@@ -234,19 +319,29 @@ class AldesApi:
         self, request: Any, url: str, **kwargs: Any
     ) -> aiohttp.ClientResponse:
         """Execute request with automatic re-authentication if needed."""
-        initial_response = await request(
-            url,
-            headers={self._AUTHORIZATION_HEADER_KEY: self._build_authorization()},
-            **kwargs,
-        )
+        # Inject headers
+        headers = kwargs.get("headers", {})
+        headers[self._AUTHORIZATION_HEADER_KEY] = self._build_authorization()
+        headers["apikey"] = self._API_KEY
+        headers["User-Agent"] = self._USER_AGENT
+        headers["sdkVersion"] = self._SDK_VERSION
+        kwargs["headers"] = headers
+
+        self._log_request_details("REQ", url, headers, kwargs.get("json"))
+
+        initial_response = await request(url, **kwargs)
+
         if initial_response.status == HTTP_UNAUTHORIZED:
+            _LOGGER.info("Token expired (401), re-authenticating...")
             initial_response.close()
             await self.authenticate()
-            return await request(
-                url,
-                headers={self._AUTHORIZATION_HEADER_KEY: self._build_authorization()},
-                **kwargs,
-            )
+
+            # Update token in headers
+            kwargs["headers"][
+                self._AUTHORIZATION_HEADER_KEY
+            ] = self._build_authorization()
+            return await request(url, **kwargs)
+
         return initial_response
 
     def _build_authorization(self) -> str:
@@ -449,8 +544,8 @@ class AldesApi:
             # Teste une requête légère
             await self.fetch_data()
             return True
-        except Exception as e:
-            _LOGGER.warning("Erreur lors de la vérification du token: %s", e)
+        except Exception:
+            _LOGGER.exception("Erreur lors de la vérification du token")
             return False
 
     @property

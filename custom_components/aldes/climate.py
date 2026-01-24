@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import ClimateEntity
@@ -16,6 +17,7 @@ from homeassistant.components.sensor.const import SensorDeviceClass
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.util import dt as dt_util
 
 from custom_components.aldes.api import CommandUid
 from custom_components.aldes.const import (
@@ -38,6 +40,15 @@ PROGRAM_OFF = "0"
 PROGRAM_COMFORT = "B"
 PROGRAM_ECO = "C"
 PROGRAM_BOOST = "G"
+
+# Duration to hold optimistic state (seconds)
+OPTIMISTIC_HOLD_DURATION = 60
+# Maximum number of retries for silent failures
+MAX_RETRIES = 3
+# Minimum length for planning slot string
+MIN_PLANNING_SLOT_LENGTH = 3
+# Temperature difference threshold for retry
+TEMP_DIFF_THRESHOLD = 0.5
 
 
 async def async_setup_entry(
@@ -88,6 +99,12 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         self._attr_hvac_action = HVACAction.OFF
         # Store effective mode for use in temperature calculations
         self._effective_air_mode: AirMode | None = None
+
+        # Optimistic state management
+        self._optimistic_target_temp: float | None = None
+        self._optimistic_hvac_mode: HVACMode | None = None
+        self._optimistic_end_time: datetime | None = None
+
         # Track pending temperature changes for retry mechanism
         self._pending_temperature_change: dict[str, Any] | None = None
         self._retry_task: asyncio.Task | None = None
@@ -113,27 +130,20 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         return f"Thermostat {self.thermostat.name}"
 
     def _get_current_time_slot(self) -> str:
-        """Get the current time slot character (0-9, A-N for hours 0-23, plus half-hour indicator)."""
-        from homeassistant.util import dt
-
-        now = dt.now()
+        """Get the current time slot character (0-9, A-N for hours 0-23)."""
+        now = dt_util.now()
         # Hours: 0-9 = '0'-'9', 10-23 = 'A'-'N'
         hour = now.hour
-        if hour < 10:
-            hour_char = str(hour)
-        else:
-            # 10=A, 11=B, ..., 23=N
-            hour_char = chr(ord("A") + (hour - 10))
-
-        # For now, return just the hour character
-        # If half-hours need different encoding, adjust here
-        return hour_char
+        first_letter_hour = 10
+        return (
+            str(hour)
+            if hour < first_letter_hour
+            else chr(ord("A") + (hour - first_letter_hour))
+        )
 
     def _get_current_day(self) -> int:
         """Get current day of week (0=Lundi, ..., 5=Samedi, 6=Dimanche)."""
-        from homeassistant.util import dt
-
-        now = dt.now()
+        now = dt_util.now()
         # weekday() returns 0=Monday, 6=Sunday
         # Format Aldes: 0=Lundi, 1=Mardi, ..., 6=Dimanche
         return now.weekday()
@@ -161,7 +171,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             elif isinstance(item, str):
                 slot_str = item
 
-            if slot_str and len(slot_str) >= 3:
+            if slot_str and len(slot_str) >= MIN_PLANNING_SLOT_LENGTH:
                 # Format: "XYZ" where X=hour char, Y=day digit, Z=mode
                 hour_char = slot_str[0]
                 day_char = slot_str[1]
@@ -172,15 +182,15 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         return None
 
     def _get_heating_program_char(self, slot_data: str) -> str | None:
-        """Extract heating program character from planning slot data ([heure][jour][mode])."""
-        if not slot_data or len(slot_data) < 3:
+        """Extract heating program character from planning slot data."""
+        if not slot_data or len(slot_data) < MIN_PLANNING_SLOT_LENGTH:
             return None
         # Le mode est le dernier caractère
         return slot_data[-1]
 
     def _get_cooling_program_char(self, slot_data: str) -> str | None:
-        """Extract cooling program character from planning slot data ([heure][jour][mode])."""
-        if not slot_data or len(slot_data) < 3:
+        """Extract cooling program character from planning slot data."""
+        if not slot_data or len(slot_data) < MIN_PLANNING_SLOT_LENGTH:
             return None
         # Le mode est aussi le dernier caractère
         return slot_data[-1]
@@ -329,18 +339,40 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         # Get the effective mode considering active program
         self._effective_air_mode = self._get_active_program_mode(air_mode) or air_mode
 
-        self._attr_hvac_mode = self._determine_hvac_mode(self._effective_air_mode)
+        # --- OPTIMISTIC STATE HANDLING ---
+        now = dt_util.now()
+        is_optimistic = (
+            self._optimistic_end_time is not None and now < self._optimistic_end_time
+        )
 
-        # ECO mode displays temperature offset for user clarity
+        # HVAC Mode
+        if is_optimistic and self._optimistic_hvac_mode is not None:
+            self._attr_hvac_mode = self._optimistic_hvac_mode
+        else:
+            self._attr_hvac_mode = self._determine_hvac_mode(self._effective_air_mode)
+
+        # Target Temperature
         temperature_offset = (
             ECO_MODE_TEMPERATURE_OFFSET
             if self._effective_air_mode == AirMode.HEAT_ECO
             else 0
         )
-        self._attr_target_temperature = thermostat.temperature_set - temperature_offset
+
+        if is_optimistic and self._optimistic_target_temp is not None:
+            self._attr_target_temperature = self._optimistic_target_temp
+        else:
+            self._attr_target_temperature = (
+                thermostat.temperature_set - temperature_offset
+            )
 
         # Determine action AFTER target_temperature is set
         self._attr_hvac_action = self._determine_hvac_action(self._effective_air_mode)
+
+        # Clean up expired optimistic state
+        if self._optimistic_end_time is not None and now >= self._optimistic_end_time:
+            self._optimistic_end_time = None
+            self._optimistic_target_temp = None
+            self._optimistic_hvac_mode = None
 
     def _get_thermostat_by_id(self, target_id: int) -> ThermostatApiEntity | None:
         """Return thermostat object by id."""
@@ -377,7 +409,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         return mode_mapping.get(air_mode, HVACMode.AUTO)
 
     def _determine_hvac_action(self, air_mode: AirMode) -> HVACAction:
-        """Determine HVAC action based on current vs target temperature, en tenant compte du mode Eco réel."""
+        """Determine HVAC action based on current vs target temperature."""
         if air_mode == AirMode.OFF:
             return HVACAction.OFF
 
@@ -439,16 +471,15 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             self.modem, self.thermostat.id, self.thermostat.name, pac_target
         )
 
-        # Store internal value for display in Home Assistant
+        # --- ENABLE OPTIMISTIC STATE ---
+        self._optimistic_target_temp = target_temperature
+        self._optimistic_end_time = dt_util.now() + timedelta(
+            seconds=OPTIMISTIC_HOLD_DURATION
+        )
+
+        # Update internal state immediately
         self._attr_target_temperature = target_temperature
-
-        # Update HVAC action immediately based on new target temperature
         self._attr_hvac_action = self._determine_hvac_action(effective_mode)
-
-        # Prevent coordinator from overwriting pending update
-        self.coordinator.skip_next_update = True
-
-        # Update Home Assistant state
         self.async_write_ha_state()
 
         # Cancel any existing retry task
@@ -464,10 +495,10 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
 
         # Schedule retry check after 1 minute
         self._retry_task = asyncio.create_task(
-            self._verify_temperature_change_after_delay()
+            self._verify_temperature_change_after_delay(attempt=1)
         )
 
-    async def _verify_temperature_change_after_delay(self) -> None:
+    async def _verify_temperature_change_after_delay(self, attempt: int = 1) -> None:
         """Verify temperature change after 1 minute and retry if needed."""
         try:
             await asyncio.sleep(60)
@@ -508,32 +539,47 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
                 return
 
             # If the temperature hasn't changed, retry the API call
-            if abs(current_target - expected_target) > 0.5:
-                _LOGGER.warning(
-                    "Temperature not updated after 1 minute (expected: %s, actual: %s). Retrying API call...",
-                    expected_target,
-                    current_target,
-                )
+            if abs(current_target - expected_target) > TEMP_DIFF_THRESHOLD:
+                if attempt <= MAX_RETRIES:
+                    _LOGGER.warning(
+                        "Temperature not updated after 1 minute (attempt %d/%d). "
+                        "Retrying API call...",
+                        attempt,
+                        MAX_RETRIES,
+                    )
 
-                # Retry the API call
-                await self.coordinator.api.set_target_temperature(
-                    self.modem,
-                    self.thermostat.id,
-                    self.thermostat.name,
-                    expected_target,
-                )
+                    # Retry the API call
+                    await self.coordinator.api.set_target_temperature(
+                        self.modem,
+                        self.thermostat.id,
+                        self.thermostat.name,
+                        expected_target,
+                    )
 
-                # Force another refresh after retry
-                await asyncio.sleep(2)
-                await self.coordinator.async_request_refresh()
+                    # Extend optimistic state duration
+                    self._optimistic_end_time = dt_util.now() + timedelta(
+                        seconds=OPTIMISTIC_HOLD_DURATION
+                    )
+
+                    # Schedule next verification
+                    self._retry_task = asyncio.create_task(
+                        self._verify_temperature_change_after_delay(attempt=attempt + 1)
+                    )
+                else:
+                    _LOGGER.error(
+                        "Failed to update temperature after %d attempts. Giving up.",
+                        MAX_RETRIES,
+                    )
+                    # Stop optimistic state to show reality to user
+                    self._optimistic_end_time = None
+                    self._pending_temperature_change = None
+                    self.async_write_ha_state()
             else:
                 _LOGGER.debug(
                     "Temperature successfully updated for thermostat %s",
                     self.thermostat.id,
                 )
-
-            # Clear pending change
-            self._pending_temperature_change = None
+                self._pending_temperature_change = None
 
         except asyncio.CancelledError:
             _LOGGER.debug("Temperature verification cancelled")
@@ -556,8 +602,14 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         await self.coordinator.api.change_mode(
             self.modem, air_mode.value, CommandUid.AIR_MODE
         )
+
+        # --- ENABLE OPTIMISTIC STATE ---
+        self._optimistic_hvac_mode = hvac_mode
+        self._optimistic_end_time = dt_util.now() + timedelta(
+            seconds=OPTIMISTIC_HOLD_DURATION
+        )
+
         self._attr_hvac_mode = hvac_mode
-        self.coordinator.skip_next_update = True
         self.async_write_ha_state()
 
         # Cancel any existing retry task
@@ -572,10 +624,10 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
 
         # Schedule retry check after 1 minute
         self._retry_mode_task = asyncio.create_task(
-            self._verify_mode_change_after_delay()
+            self._verify_mode_change_after_delay(attempt=1)
         )
 
-    async def _verify_mode_change_after_delay(self) -> None:
+    async def _verify_mode_change_after_delay(self, attempt: int = 1) -> None:
         """Verify mode change after 1 minute and retry if needed."""
         try:
             await asyncio.sleep(60)
@@ -600,28 +652,43 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
 
             # If the mode hasn't changed, retry the API call
             if current_mode != expected_mode:
-                _LOGGER.warning(
-                    "Air mode not updated after 1 minute (expected: %s, actual: %s). Retrying API call...",
-                    expected_mode,
-                    current_mode,
-                )
+                if attempt <= MAX_RETRIES:
+                    _LOGGER.warning(
+                        "Air mode not updated after 1 minute (attempt %d/%d). "
+                        "Retrying API call...",
+                        attempt,
+                        MAX_RETRIES,
+                    )
 
-                # Retry the API call
-                await self.coordinator.api.change_mode(
-                    self.modem, expected_mode.value, CommandUid.AIR_MODE
-                )
+                    # Retry the API call
+                    await self.coordinator.api.change_mode(
+                        self.modem, expected_mode.value, CommandUid.AIR_MODE
+                    )
 
-                # Force another refresh after retry
-                await asyncio.sleep(2)
-                await self.coordinator.async_request_refresh()
+                    # Extend optimistic state duration
+                    self._optimistic_end_time = dt_util.now() + timedelta(
+                        seconds=OPTIMISTIC_HOLD_DURATION
+                    )
+
+                    # Schedule next verification
+                    self._retry_mode_task = asyncio.create_task(
+                        self._verify_mode_change_after_delay(attempt=attempt + 1)
+                    )
+                else:
+                    _LOGGER.error(
+                        "Failed to update mode after %d attempts. Giving up.",
+                        MAX_RETRIES,
+                    )
+                    # Stop optimistic state to show reality to user
+                    self._optimistic_end_time = None
+                    self._pending_mode_change = None
+                    self.async_write_ha_state()
             else:
                 _LOGGER.debug(
                     "Air mode successfully updated to %s",
                     expected_mode,
                 )
-
-            # Clear pending change
-            self._pending_mode_change = None
+                self._pending_mode_change = None
 
         except asyncio.CancelledError:
             _LOGGER.debug("Mode verification cancelled")

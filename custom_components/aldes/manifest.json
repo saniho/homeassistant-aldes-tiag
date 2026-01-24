@@ -2,9 +2,13 @@
   "domain": "aldes",
   "name": "Aldes",
   "codeowners": [
-    "@tiagfernandes"
+    "@tiagfernandes",
+    "@saniho"
   ],
   "config_flow": true,
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/tiagfernandes/homeassistant-aldes",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
@@ -12,6 +16,5 @@
   "requirements": [
     "backoff>=2.2.1"
   ],
-  "version": "v3.3.0",
-  "reload": "CONFIG_ENTRY"
+  "version": "v3.3.0"
 }
