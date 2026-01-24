@@ -94,6 +94,18 @@ class AldesApi:
                 safe_data["password"] = "***"
             _LOGGER.debug("Data: %s", safe_data)
 
+    def _log_api_performance(
+        self, url: str, method: str, status: int, duration_ms: float
+    ) -> None:
+        """Log API performance metrics for diagnostics."""
+        _LOGGER.debug(
+            "API %s %s completed with status %d in %.2f ms",
+            method.upper(),
+            url.split("/")[-1],
+            status,
+            duration_ms,
+        )
+
     @backoff.on_exception(
         backoff.expo,
         (ClientError, TimeoutError),
@@ -154,6 +166,7 @@ class AldesApi:
         """Execute API request with retry, timeout and error handling."""
         # Generate cache key from method and url
         cache_key = f"{method}:{url}"
+        start_time = datetime.now(UTC)
 
         try:
             # Add timeout to kwargs if not already present
@@ -166,13 +179,16 @@ class AldesApi:
             async with await self._request_with_auth_interceptor(
                 request_func, url, **kwargs
             ) as response:
+                duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
                 if response.status == HTTP_OK:
                     data = await response.json()
                     # Store in cache for emergency fallback
                     self._cache[cache_key] = data
                     self._cache_timestamp[cache_key] = datetime.now(UTC)
+                    self._log_api_performance(url, method, response.status, duration_ms)
                     _LOGGER.debug("Stored data in emergency cache for %s", cache_key)
                     return data
+                self._log_api_performance(url, method, response.status, duration_ms)
                 msg = f"API request failed with status {response.status}"
                 _LOGGER.error(msg)
                 raise ClientError(msg)
@@ -547,6 +563,47 @@ class AldesApi:
         except Exception:
             _LOGGER.exception("Erreur lors de la vérification du token")
             return False
+
+    def get_diagnostic_info(self) -> dict[str, Any]:
+        """Get diagnostic information about API client state."""
+        cache_info = {
+            "cached_endpoints": len(self._cache),
+            "cache_details": [
+                {
+                    "key": key,
+                    "age_seconds": (
+                        datetime.now(UTC) - timestamp
+                    ).total_seconds(),
+                }
+                for key, timestamp in self._cache_timestamp.items()
+            ],
+        }
+
+        token_info = {"token_present": bool(self._token), "token_length": len(self._token) if self._token else 0}
+
+        if self._token:
+            try:
+                payload = self._token.split(".")[1]
+                payload += "=" * (-len(payload) % 4)
+                decoded = json.loads(base64.b64decode(payload).decode("utf-8"))
+                token_info["token_expires"] = datetime.fromtimestamp(
+                    decoded.get("exp", 0), tz=UTC
+                ).isoformat()
+                token_info["token_issued_at"] = datetime.fromtimestamp(
+                    decoded.get("iat", 0), tz=UTC
+                ).isoformat()
+            except Exception as e:
+                token_info["token_decode_error"] = str(e)
+
+        return {
+            "api_url_base": self._API_URL_BASE,
+            "cache": cache_info,
+            "token": token_info,
+            "queue_active": (
+                self._temperature_task is not None
+                and not self._temperature_task.done()
+            ),
+        }
 
     @property
     def token(self) -> str:

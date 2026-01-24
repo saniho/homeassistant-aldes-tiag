@@ -111,6 +111,17 @@ async def async_setup_entry(
         ]
     )
 
+    # Add diagnostic sensors
+    sensors.extend(
+        [
+            AldesApiHealthSensor(coordinator, entry),
+            AldesDeviceInfoSensor(coordinator, entry),
+            AldesThermostatsCountSensor(coordinator, entry),
+            AldesTemperatureLimitsSensor(coordinator, entry),
+            AldesSettingsSensor(coordinator, entry),
+        ]
+    )
+
     async_add_entities(sensors)
 
 
@@ -795,3 +806,217 @@ class AldesHorsGelSensor(BaseAldesSensorEntity):
         if self.coordinator.data is None:
             return "unknown"
         return "Actif" if self.coordinator.data.hors_gel else "Inactif"
+
+
+class AldesApiHealthSensor(BaseAldesSensorEntity):
+    """Sensor for API connectivity status."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:cloud-check"
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.serial_number}_api_health"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "État API Aldes"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        if self.coordinator.data is None:
+            return "disconnected"
+        return "connected" if self.coordinator.data.is_connected else "disconnected"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with diagnostic data."""
+        if self.coordinator.data is None:
+            return {}
+
+        try:
+            diagnostic_info = self.coordinator.api.get_diagnostic_info()
+            return {
+                "cache_endpoints": diagnostic_info["cache"]["cached_endpoints"],
+                "queue_active": diagnostic_info["queue_active"],
+                "last_updated": (
+                    self.coordinator.data.last_updated_date
+                    if self.coordinator.data
+                    else None
+                ),
+            }
+        except Exception as e:
+            _LOGGER.warning("Error getting API diagnostic info: %s", e)
+            return {}
+
+
+class AldesDeviceInfoSensor(BaseAldesSensorEntity):
+    """Sensor for device information and diagnostics."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:information"
+    _attr_entity_registry_visible_default = False
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.serial_number}_device_info"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "Informations Appareil"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        if self.coordinator.data is None:
+            return "unknown"
+        return f"{self.coordinator.data.reference} ({self.coordinator.data.type})"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with device details."""
+        if self.coordinator.data is None:
+            return {}
+
+        data = self.coordinator.data
+        return {
+            "reference": data.reference,
+            "type": data.type,
+            "serial_number": data.serial_number,
+            "modem": data.modem,
+            "is_connected": data.is_connected,
+            "thermostats_count": len(data.indicator.thermostats),
+            "has_filter": data.has_filter,
+            "filter_wear": data.filter_wear,
+        }
+
+
+class AldesThermostatsCountSensor(BaseAldesSensorEntity):
+    """Sensor for thermostat count."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:thermometer"
+    _attr_entity_registry_visible_default = False
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.serial_number}_thermostats_count"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "Nombre de Thermostats"
+
+    @property
+    def native_value(self) -> int:
+        """Return the state."""
+        if self.coordinator.data is None:
+            return 0
+        return len(self.coordinator.data.indicator.thermostats)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with thermostat details."""
+        if self.coordinator.data is None:
+            return {}
+
+        thermostats = []
+        for t in self.coordinator.data.indicator.thermostats:
+            thermostats.append(
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "number": t.number,
+                    "current_temperature": t.current_temperature,
+                    "temperature_set": t.temperature_set,
+                }
+            )
+
+        return {"thermostats": thermostats}
+
+
+class AldesTemperatureLimitsSensor(BaseAldesSensorEntity):
+    """Sensor for temperature limits (heating and cooling)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:thermometer-lines"
+    _attr_entity_registry_visible_default = False
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.serial_number}_temperature_limits"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "Limites de Température"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        if self.coordinator.data is None:
+            return "unknown"
+        indicator = self.coordinator.data.indicator
+        return (
+            f"H: {indicator.fmist}°C-{indicator.fmast}°C, "
+            f"C: {indicator.cmist}°C-{indicator.cmast}°C"
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with temperature limits."""
+        if self.coordinator.data is None:
+            return {}
+
+        indicator = self.coordinator.data.indicator
+        return {
+            "heat_min": indicator.fmist,
+            "heat_max": indicator.fmast,
+            "cool_min": indicator.cmist,
+            "cool_max": indicator.cmast,
+            "main_temperature": indicator.main_temperature,
+        }
+
+
+class AldesSettingsSensor(BaseAldesSensorEntity):
+    """Sensor for device settings."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:cog"
+    _attr_entity_registry_visible_default = False
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.serial_number}_settings"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "Paramètres Appareil"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        if self.coordinator.data is None:
+            return "unknown"
+        settings = self.coordinator.data.indicator.settings
+        return "configured" if settings else "unconfigured"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with settings."""
+        if self.coordinator.data is None:
+            return {}
+
+        settings = self.coordinator.data.indicator.settings
+        return {
+            "household_composition": str(settings.people) if settings.people else None,
+            "antilegio_cycle": settings.antilegio,
+            "kwh_creuse": settings.kwh_creuse,
+            "kwh_pleine": settings.kwh_pleine,
+        }
+
+
