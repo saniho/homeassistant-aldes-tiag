@@ -41,6 +41,10 @@ Cette intégration a été renforcée pour garantir une connexion stable et séc
 
 Dans HACS, ajoutez le dépôt personnalisé <https://github.com/tiagfernandes/homeassistant-aldes> et sélectionnez la catégorie Intégration.
 
+## ⚠️ Avertissement Légal
+
+**Cette intégration n'est pas officielle et n'a aucun lien avec Aldes.** Elle est développée et maintenue par la communauté. Les créateurs et contributeurs de cette intégration ne sont pas responsables des dysfonctionnements, pertes de données, dommages matériels ou immatériels qui pourraient résulter de son utilisation. Utilisez-la à vos risques et périls.
+
 ## Configuration
 
 Le nom d'utilisateur et le mot de passe demandés lors de la configuration sont les mêmes que ceux que vous utilisez pour l'application mobile Aldes Connect.
