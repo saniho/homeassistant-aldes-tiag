@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.components.sensor.const import SensorDeviceClass
+from homeassistant.components.sensor.const import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     EVENT_HOMEASSISTANT_STARTED,
     PERCENTAGE,
@@ -19,7 +19,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, FRIENDLY_NAMES, MANUFACTURER
+from .const import DOMAIN, FRIENDLY_NAMES, MANUFACTURER, ApiHealthState
 from .entity import AldesEntity, ThermostatApiEntity
 
 if TYPE_CHECKING:
@@ -565,7 +565,7 @@ class AldesECSConsumptionSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = "kWh"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:water-boiler"
 
     @property
@@ -591,7 +591,7 @@ class AldesECSCostSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "EUR"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:cash"
 
     @property
@@ -617,7 +617,7 @@ class AldesHeatingConsumptionSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = "kWh"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:radiator"
 
     @property
@@ -643,7 +643,7 @@ class AldesHeatingCostSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "EUR"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:cash"
 
     @property
@@ -669,7 +669,7 @@ class AldesCoolingConsumptionSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = "kWh"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:snowflake"
 
     @property
@@ -695,7 +695,7 @@ class AldesCoolingCostSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "EUR"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:cash"
 
     @property
@@ -812,7 +812,8 @@ class AldesApiHealthSensor(BaseAldesSensorEntity):
     """Sensor for API connectivity status."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:cloud-check"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [state.value for state in ApiHealthState]
 
     @property
     def unique_id(self) -> str | None:
@@ -826,27 +827,24 @@ class AldesApiHealthSensor(BaseAldesSensorEntity):
     @property
     def native_value(self) -> str:
         """Return the state."""
-        if self.coordinator.data is None:
-            return "disconnected"
-        return "connected" if self.coordinator.data.is_connected else "disconnected"
+        return self.coordinator.api.health_state.value
+
+    @property
+    def icon(self) -> str:
+        """Return a dynamic icon based on the health state."""
+        state_map = {
+            ApiHealthState.ONLINE: "mdi:cloud-check",
+            ApiHealthState.RETRYING: "mdi:cloud-sync",
+            ApiHealthState.DEGRADED: "mdi:cloud-alert",
+            ApiHealthState.OFFLINE: "mdi:cloud-off-outline",
+        }
+        return state_map.get(self.coordinator.api.health_state, "mdi:cloud-question")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes with diagnostic data."""
-        if self.coordinator.data is None:
-            return {}
-
         try:
-            diagnostic_info = self.coordinator.api.get_diagnostic_info()
-            return {
-                "cache_endpoints": diagnostic_info["cache"]["cached_endpoints"],
-                "queue_active": diagnostic_info["queue_active"],
-                "last_updated": (
-                    self.coordinator.data.last_updated_date
-                    if self.coordinator.data
-                    else None
-                ),
-            }
+            return self.coordinator.api.get_diagnostic_info()
         except Exception as e:
             _LOGGER.warning("Error getting API diagnostic info: %s", e)
             return {}

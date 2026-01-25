@@ -16,5 +16,15 @@
         "abort": {
             "single_instance_allowed": "Une seule instance est autorisée."
         }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Options Aldes",
+                "data": {
+                    "performance_logs": "Activer les journaux de performance (debug)"
+                }
+            }
+        }
     }
 }

@@ -1,5 +1,70 @@
 # 📝 CHANGELOG - Implémentation Diagnostics & Logging
 
+## Version 3.5.0 - 2026-01-24
+
+### 🎯 Objectif
+Améliorer la résilience de l'intégration, permettre une configuration plus flexible via l'interface utilisateur et intégrer nativement les données de consommation au dashboard Énergie de Home Assistant.
+
+### ✨ Nouvelles Fonctionnalités
+
+#### 1. Configuration via l'Interface Utilisateur
+- **Fichiers:** `config_flow.py`, `__init__.py`, `const.py`, traductions
+- **Changement:** Ajout d'un flux d'options (Options Flow)
+- **Fonctionnalité:** Activation/Désactivation des logs de performance (debug) directement depuis l'UI
+- **Bénéfice:** Plus besoin de modifier `configuration.yaml` et de redémarrer HA pour activer les logs détaillés
+
+#### 2. Mécanisme de Résilience (Retry & Backoff)
+- **Fichier:** `custom_components/aldes/api.py`
+- **Changement:** Implémentation de `backoff` exponentiel sur les appels API
+- **Comportement:**
+  - Réessaie automatiquement en cas d'erreur réseau ou serveur (5xx)
+  - Délai exponentiel entre les tentatives (max 5 tentatives sur 5 minutes)
+  - Gestion intelligente des erreurs d'authentification (401)
+- **Bénéfice:** L'intégration survit aux micro-coupures et aux indisponibilités temporaires de l'API Aldes
+
+#### 3. Capteur de Santé API Granulaire
+- **Fichiers:** `custom_components/aldes/api.py`, `custom_components/aldes/sensor.py`, `custom_components/aldes/const.py`
+- **Changement:** Amélioration du capteur `AldesApiHealthSensor`
+- **États:**
+  - `online`: Fonctionnement normal
+  - `retrying`: Tentative de reconnexion en cours
+  - `degraded`: Utilisation des données en cache suite à une erreur
+  - `offline`: Échec complet après toutes les tentatives
+- **Bénéfice:** Visibilité immédiate sur l'état de la connexion et les problèmes potentiels
+
+#### 4. Intégration Dashboard Énergie
+- **Fichier:** `custom_components/aldes/sensor.py`
+- **Changement:** Mise à jour des classes d'état des capteurs de consommation
+- **Détail:** Passage de `state_class` à `total_increasing` pour :
+  - `AldesECSConsumptionSensor`
+  - `AldesHeatingConsumptionSensor`
+  - `AldesCoolingConsumptionSensor`
+- **Bénéfice:** Les capteurs sont maintenant sélectionnables dans le dashboard Énergie de Home Assistant pour un suivi natif
+
+### 🔧 Modifications Techniques
+
+#### api.py
+- Ajout du décorateur `@backoff.on_exception` sur `authenticate` et `_api_request`
+- Gestion de l'état de santé (`health_state`) dans la classe `AldesApi`
+- Ajout de logs d'avertissement lors des tentatives de reconnexion (`_backoff_handler`)
+
+#### config_flow.py
+- Ajout de la classe `AldesOptionsFlowHandler`
+- Ajout de la méthode `async_get_options_flow` dans `AldesFlowHandler`
+
+#### sensor.py
+- Mise à jour de `AldesApiHealthSensor` pour utiliser les nouveaux états et icônes dynamiques
+- Mise à jour des capteurs de consommation avec `SensorStateClass.TOTAL_INCREASING`
+
+### 📊 Résumé des Changements
+
+| Aspect | Avant | Après |
+|--------|-------|-------|
+| Logs Debug | YAML + Restart | UI Options (Immédiat) |
+| Erreur Réseau | Erreur immédiate | Retry automatique (Backoff) |
+| État API | Connecté/Déconnecté | Online/Retrying/Degraded/Offline |
+| Dashboard Énergie | Non compatible | Compatible (Total Increasing) |
+
 ## Version 3.4.0 - 2026-01-24
 
 ### 🎯 Objectif
