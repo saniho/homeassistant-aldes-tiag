@@ -20,13 +20,16 @@ async def test_form(hass):
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {}
 
-    with patch(
-        "custom_components.aldes.config_flow.AldesApi.authenticate",
-        return_value=True,
-    ), patch(
-        "custom_components.aldes.async_setup_entry",
-        return_value=True,
-    ) as mock_setup_entry:
+    with (
+        patch(
+            "custom_components.aldes.config_flow.AldesApi.authenticate",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.aldes.async_setup_entry",
+            return_value=True,
+        ) as mock_setup_entry,
+    ):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
