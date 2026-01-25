@@ -35,7 +35,9 @@ class AldesApi:
 
     _API_URL_BASE = "https://aldesiotsuite-aldeswebapi.azurewebsites.net"
     _API_URL_TOKEN = f"{_API_URL_BASE}/oauth2/token"
-    _API_URL_PRODUCTS = f"{_API_URL_BASE}/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
+    _API_URL_PRODUCTS = (
+        f"{_API_URL_BASE}/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
+    )
 
     _AUTHORIZATION_HEADER_KEY = "Authorization"
     _TOKEN_TYPE = "Bearer"
@@ -351,9 +353,9 @@ class AldesApi:
             await self.authenticate()
 
             # Update token in headers
-            kwargs["headers"][self._AUTHORIZATION_HEADER_KEY] = (
-                self._build_authorization()
-            )
+            kwargs["headers"][
+                self._AUTHORIZATION_HEADER_KEY
+            ] = self._build_authorization()
             return await request(url, **kwargs)
 
         return initial_response
