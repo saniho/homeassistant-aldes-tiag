@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.sensor.const import SensorDeviceClass, SensorStateClass
@@ -813,7 +813,7 @@ class AldesApiHealthSensor(BaseAldesSensorEntity):
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = [state.value for state in ApiHealthState]
+    _attr_options: ClassVar[list[str]] = [state.value for state in ApiHealthState]
 
     @property
     def unique_id(self) -> str | None:

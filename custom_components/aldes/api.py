@@ -362,9 +362,9 @@ class AldesApi:
             await self.authenticate()
 
             # Update token in headers for the retry
-            kwargs["headers"][
-                self._AUTHORIZATION_HEADER_KEY
-            ] = self._build_authorization()
+            kwargs["headers"][self._AUTHORIZATION_HEADER_KEY] = (
+                self._build_authorization()
+            )
             # This will be the last attempt, so we return the response directly
             return await request(url, **kwargs)
 
@@ -395,9 +395,7 @@ class AldesApi:
     async def set_holidays_mode(
         self, modem: str, start_date: str, end_date: str
     ) -> Any:
-        """
-        Set holidays mode with start and end dates.
-        """
+        """Set holidays mode with start and end dates."""
         param = f"W{start_date}{end_date}"
         _LOGGER.info(
             "Setting holidays mode for modem %s from %s to %s",
@@ -408,9 +406,7 @@ class AldesApi:
         return await self._send_command(modem, "changeMode", 1, param)
 
     async def cancel_holidays_mode(self, modem: str) -> Any:
-        """
-        Cancel holidays mode by setting dates to 0001-01-01.
-        """
+        """Cancel holidays mode by setting dates to 0001-01-01."""
         param = "W00010101000000Z00010101000000Z"
         _LOGGER.info("Cancelling holidays mode for modem %s", modem)
         return await self._send_command(modem, "changeMode", 1, param)
@@ -418,9 +414,7 @@ class AldesApi:
     async def set_kwh_prices(
         self, modem: str, kwh_pleine: float, kwh_creuse: float
     ) -> Any:
-        """
-        Set electricity prices for peak and off-peak hours.
-        """
+        """Set electricity prices for peak and off-peak hours."""
         pleine_milliemes = int(kwh_pleine * 1000)
         creuse_milliemes = int(kwh_creuse * 1000)
         param = f"P{pleine_milliemes}C{creuse_milliemes}"
@@ -433,9 +427,7 @@ class AldesApi:
         return await self._send_command(modem, "prixkwh", 1, param)
 
     async def set_frost_protection_mode(self, modem: str, start_date: str) -> Any:
-        """
-        Set frost protection mode (hors gel) with start date and no end date.
-        """
+        """Set frost protection mode (hors gel) with start date and no end date."""
         param = f"W{start_date}00000000000000Z"
         _LOGGER.info(
             "Setting frost protection mode for modem %s from %s",
@@ -489,9 +481,7 @@ class AldesApi:
     async def get_statistics(
         self, modem: str, start_date: str, end_date: str, granularity: str = "month"
     ) -> list[Any] | dict[str, Any] | None:
-        """
-        Get device statistics.
-        """
+        """Get device statistics."""
         url = (
             f"{self._API_URL_PRODUCTS}/{modem}/statistics/"
             f"{start_date}/{end_date}/{granularity}"
