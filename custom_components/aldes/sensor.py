@@ -924,16 +924,16 @@ class AldesThermostatsCountSensor(BaseAldesSensorEntity):
             return {}
 
         thermostats = []
-        for t in self.coordinator.data.indicator.thermostats:
-            thermostats.append(
-                {
-                    "id": t.id,
-                    "name": t.name,
-                    "number": t.number,
-                    "current_temperature": t.current_temperature,
-                    "temperature_set": t.temperature_set,
-                }
-            )
+        thermostats = [
+            {
+                "id": t.id,
+                "name": t.name,
+                "number": t.number,
+                "current_temperature": t.current_temperature,
+                "temperature_set": t.temperature_set,
+            }
+            for t in self.coordinator.data.indicator.thermostats
+        ]
 
         return {"thermostats": thermostats}
 
