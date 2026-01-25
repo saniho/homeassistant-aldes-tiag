@@ -100,8 +100,7 @@ class AldesOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        # Explicitly call the parent's __init__ method
-        config_entries.OptionsFlow.__init__(self, config_entry)
+        self._config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
