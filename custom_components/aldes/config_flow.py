@@ -99,8 +99,8 @@ class AldesOptionsFlowHandler(config_entries.OptionsFlow):
     """Aldes config flow options handler."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize HACS options flow."""
-        self.config_entry = config_entry
+        """Initialize options flow."""
+        super().__init__(config_entry)
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
