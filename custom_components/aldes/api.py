@@ -35,9 +35,7 @@ class AldesApi:
 
     _API_URL_BASE = "https://aldesiotsuite-aldeswebapi.azurewebsites.net"
     _API_URL_TOKEN = f"{_API_URL_BASE}/oauth2/token"
-    _API_URL_PRODUCTS = (
-        f"{_API_URL_BASE}/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
-    )
+    _API_URL_PRODUCTS = f"{_API_URL_BASE}/aldesoc/v5/users/me/products"  # pylint: disable=line-too-long
 
     _AUTHORIZATION_HEADER_KEY = "Authorization"
     _TOKEN_TYPE = "Bearer"
@@ -353,9 +351,9 @@ class AldesApi:
             await self.authenticate()
 
             # Update token in headers
-            kwargs["headers"][
-                self._AUTHORIZATION_HEADER_KEY
-            ] = self._build_authorization()
+            kwargs["headers"][self._AUTHORIZATION_HEADER_KEY] = (
+                self._build_authorization()
+            )
             return await request(url, **kwargs)
 
         return initial_response
@@ -571,15 +569,16 @@ class AldesApi:
             "cache_details": [
                 {
                     "key": key,
-                    "age_seconds": (
-                        datetime.now(UTC) - timestamp
-                    ).total_seconds(),
+                    "age_seconds": (datetime.now(UTC) - timestamp).total_seconds(),
                 }
                 for key, timestamp in self._cache_timestamp.items()
             ],
         }
 
-        token_info = {"token_present": bool(self._token), "token_length": len(self._token) if self._token else 0}
+        token_info = {
+            "token_present": bool(self._token),
+            "token_length": len(self._token) if self._token else 0,
+        }
 
         if self._token:
             try:
@@ -600,8 +599,7 @@ class AldesApi:
             "cache": cache_info,
             "token": token_info,
             "queue_active": (
-                self._temperature_task is not None
-                and not self._temperature_task.done()
+                self._temperature_task is not None and not self._temperature_task.done()
             ),
         }
 

@@ -1018,5 +1018,3 @@ class AldesSettingsSensor(BaseAldesSensorEntity):
             "kwh_creuse": settings.kwh_creuse,
             "kwh_pleine": settings.kwh_pleine,
         }
-
-

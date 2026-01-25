@@ -17,13 +17,13 @@ else
 fi
 echo ""
 
-# 2. Black Check
-echo "📋 2. Checking format with Black..."
-python -m black --check .
+# 2. Ruff Format Check
+echo "📋 2. Checking format with Ruff..."
+python -m ruff format --check .
 if [ $? -eq 0 ]; then
-    echo "✅ Black: PASSED"
+    echo "✅ Ruff Format: PASSED"
 else
-    echo "❌ Black: FAILED"
+    echo "❌ Ruff Format: FAILED"
     exit 1
 fi
 echo ""
@@ -54,8 +54,7 @@ echo "╚═══════════════════════�
 echo ""
 echo "Next steps:"
 echo "1. git add ."
-echo "2. git commit -m 'Fix: ruff, black, pytest, manifest, and asyncio issues'"
+echo "2. git commit -m 'Fix: ruff, pytest, manifest, and asyncio issues'"
 echo "3. git push origin dev"
 echo ""
 echo "Then verify GitHub Actions workflows pass! 🚀"
-
