@@ -11,8 +11,9 @@ from typing import Any
 
 import aiohttp
 import backoff
-from aiohttp import ClientError, ClientTimeout
+from aiohttp import ClientError, ClientResponseError, ClientTimeout
 
+from custom_components.aldes.const import ApiHealthState
 from custom_components.aldes.entity import DataApiEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,6 +22,24 @@ HTTP_OK = 200
 HTTP_UNAUTHORIZED = 401
 REQUEST_DELAY = 5  # Delay between queued requests in seconds
 CACHE_TTL = 300  # Cache TTL in seconds (5 minutes)
+
+
+def _backoff_handler(details: dict[str, Any]) -> None:
+    """Log backoff attempts and update health state."""
+    target_self = details["args"][0]
+    if isinstance(target_self, AldesApi):
+        target_self.health_state = ApiHealthState.RETRYING
+    _LOGGER.warning(
+        "Backing off %s(...) for %.1fs (%s)",
+        details["target"].__name__,
+        details["wait"],
+        details["exception"],
+    )
+
+
+def _is_reauth_error(e: BaseException) -> bool:
+    """Return True if this is an error that should trigger re-authentication."""
+    return isinstance(e, ClientResponseError) and e.status == HTTP_UNAUTHORIZED
 
 
 class CommandUid(IntEnum):
@@ -60,6 +79,7 @@ class AldesApi:
         self._timeout = ClientTimeout(total=30)
         self._cache: dict[str, Any] = {}
         self._cache_timestamp: dict[str, datetime] = {}
+        self.health_state: ApiHealthState = ApiHealthState.ONLINE
         self.queue_target_temperature: (
             asyncio.Queue[tuple[str, int, str, Any]] | None
         ) = None
@@ -109,6 +129,7 @@ class AldesApi:
         (ClientError, TimeoutError),
         max_tries=3,
         max_time=60,
+        on_backoff=_backoff_handler,
     )
     async def authenticate(self) -> None:
         """Authenticate and retrieve access token from Aldes API."""
@@ -135,63 +156,51 @@ class AldesApi:
             async with self._session.post(
                 self._API_URL_TOKEN, data=data, headers=headers, timeout=self._timeout
             ) as response:
-                if response.status == HTTP_OK:
-                    json_resp = await response.json()
-                    self._token = json_resp["access_token"]
-                    _LOGGER.info("Successfully authenticated with Aldes API")
-                else:
-                    response_text = await response.text()
-                    error_msg = (
-                        f"Authentication failed with status {response.status}: "
-                        f"{response_text}"
-                    )
-                    _LOGGER.error(error_msg)
-                    raise AuthenticationError(error_msg)
+                response.raise_for_status()
+                json_resp = await response.json()
+                self._token = json_resp["access_token"]
+                self.health_state = ApiHealthState.ONLINE
+                _LOGGER.info("Successfully authenticated with Aldes API")
         except (ClientError, TimeoutError) as err:
+            self.health_state = ApiHealthState.OFFLINE
             error_msg = f"Authentication request failed: {err}"
             _LOGGER.exception(error_msg)
             raise AuthenticationError(error_msg) from err
 
     @backoff.on_exception(
         backoff.expo,
-        (ClientError, TimeoutError),
-        max_tries=3,
-        max_time=60,
+        (ClientError, TimeoutError, ClientResponseError),
+        max_tries=5,
+        max_time=300,
+        on_backoff=_backoff_handler,
+        giveup=lambda e: isinstance(e, ClientResponseError) and 400 <= e.status < 500,
     )
     async def _api_request(
         self, method: str, url: str, **kwargs: Any
     ) -> list[Any] | dict[str, Any]:
         """Execute API request with retry, timeout and error handling."""
-        # Generate cache key from method and url
         cache_key = f"{method}:{url}"
         start_time = datetime.now(UTC)
 
         try:
-            # Add timeout to kwargs if not already present
             if "timeout" not in kwargs:
                 kwargs["timeout"] = self._timeout
 
             request_func = getattr(self._session, method.lower())
 
-            # Log the request before sending
             async with await self._request_with_auth_interceptor(
                 request_func, url, **kwargs
             ) as response:
                 duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
-                if response.status == HTTP_OK:
-                    data = await response.json()
-                    # Store in cache for emergency fallback
-                    self._cache[cache_key] = data
-                    self._cache_timestamp[cache_key] = datetime.now(UTC)
-                    self._log_api_performance(url, method, response.status, duration_ms)
-                    _LOGGER.debug("Stored data in emergency cache for %s", cache_key)
-                    return data
+                response.raise_for_status()
+                data = await response.json()
+                self._cache[cache_key] = data
+                self._cache_timestamp[cache_key] = datetime.now(UTC)
+                self.health_state = ApiHealthState.ONLINE
                 self._log_api_performance(url, method, response.status, duration_ms)
-                msg = f"API request failed with status {response.status}"
-                _LOGGER.error(msg)
-                raise ClientError(msg)
+                _LOGGER.debug("Stored data in emergency cache for %s", cache_key)
+                return data
         except Exception as err:
-            # Log specific error type
             if isinstance(err, ClientError | TimeoutError):
                 _LOGGER.exception("API request error")
             elif isinstance(err, KeyError | ValueError):
@@ -199,11 +208,11 @@ class AldesApi:
             else:
                 _LOGGER.exception("Unexpected error during API request")
 
-            # Use cached data as fallback for ANY error (regardless of age)
             if cache_key in self._cache:
                 cache_age = datetime.now(UTC) - self._cache_timestamp.get(
                     cache_key, datetime.min.replace(tzinfo=UTC)
                 )
+                self.health_state = ApiHealthState.DEGRADED
                 _LOGGER.warning(
                     "Using cached data as fallback due to error: %s (age: %s)",
                     type(err).__name__,
@@ -211,7 +220,7 @@ class AldesApi:
                 )
                 return self._cache[cache_key]
 
-            # No cache available, propagate the error
+            self.health_state = ApiHealthState.OFFLINE
             if isinstance(err, KeyError | ValueError):
                 msg = f"Invalid API response: {err}"
                 raise ClientError(msg) from err
@@ -235,8 +244,6 @@ class AldesApi:
             _LOGGER.debug("Fetched data: %s", data)
 
             if isinstance(data, list) and len(data) > 0:
-                # Type narrowing: data is list[Any], so data[0] is Any
-                # We check if it's a dict before passing to DataApiEntity
                 first_item: Any = data[0]
                 if isinstance(first_item, dict):
                     _LOGGER.debug("Successfully retrieved Aldes device data")
@@ -249,7 +256,6 @@ class AldesApi:
         """Process temperature change requests from queue with delay between each."""
         while True:
             try:
-                # Ensure queue exists before getting from it
                 if self.queue_target_temperature is None:
                     await asyncio.sleep(1)
                     continue
@@ -277,8 +283,6 @@ class AldesApi:
                 _LOGGER.exception("Unexpected error in temperature worker")
                 await asyncio.sleep(REQUEST_DELAY)
             finally:
-                # Ensure task_done is called even if processing failed
-                # to avoid blocking join() calls if used in future
                 if self.queue_target_temperature is not None:
                     with contextlib.suppress(ValueError):
                         self.queue_target_temperature.task_done()
@@ -292,9 +296,10 @@ class AldesApi:
     ) -> None:
         """Set target temperature."""
         await self._ensure_temperature_worker_started()
-        await self.queue_target_temperature.put(
-            (modem, thermostat_id, thermostat_name, target_temperature)
-        )
+        if self.queue_target_temperature:
+            await self.queue_target_temperature.put(
+                (modem, thermostat_id, thermostat_name, target_temperature)
+            )
 
     async def change_temperature(
         self,
@@ -329,11 +334,17 @@ class AldesApi:
             _LOGGER.debug("Temperature change response: %s", result)
             return result
 
+    @backoff.on_exception(
+        backoff.expo,
+        ClientResponseError,
+        max_tries=2,
+        giveup=lambda e: not _is_reauth_error(e),
+        on_backoff=_backoff_handler,
+    )
     async def _request_with_auth_interceptor(
         self, request: Any, url: str, **kwargs: Any
     ) -> aiohttp.ClientResponse:
         """Execute request with automatic re-authentication if needed."""
-        # Inject headers
         headers = kwargs.get("headers", {})
         headers[self._AUTHORIZATION_HEADER_KEY] = self._build_authorization()
         headers["apikey"] = self._API_KEY
@@ -343,20 +354,21 @@ class AldesApi:
 
         self._log_request_details("REQ", url, headers, kwargs.get("json"))
 
-        initial_response = await request(url, **kwargs)
+        response = await request(url, **kwargs)
 
-        if initial_response.status == HTTP_UNAUTHORIZED:
+        if response.status == HTTP_UNAUTHORIZED:
             _LOGGER.info("Token expired (401), re-authenticating...")
-            initial_response.close()
+            response.close()  # Close the initial response
             await self.authenticate()
 
-            # Update token in headers
+            # Update token in headers for the retry
             kwargs["headers"][self._AUTHORIZATION_HEADER_KEY] = (
                 self._build_authorization()
             )
+            # This will be the last attempt, so we return the response directly
             return await request(url, **kwargs)
 
-        return initial_response
+        return response
 
     def _build_authorization(self) -> str:
         """Build Authorization header value."""
@@ -383,19 +395,7 @@ class AldesApi:
     async def set_holidays_mode(
         self, modem: str, start_date: str, end_date: str
     ) -> Any:
-        """
-        Set holidays mode with start and end dates.
-
-        Args:
-            modem: Device modem ID
-            start_date: Start date in format yyyyMMddHHmmssZ (e.g., 20251220000000Z)
-            end_date: End date in format yyyyMMddHHmmssZ (e.g., 20260105000000Z)
-
-        Returns:
-            API response
-
-        """
-        # Format: W + start_date + end_date (concatenated with W prefix)
+        """Set holidays mode with start and end dates."""
         param = f"W{start_date}{end_date}"
         _LOGGER.info(
             "Setting holidays mode for modem %s from %s to %s",
@@ -406,14 +406,7 @@ class AldesApi:
         return await self._send_command(modem, "changeMode", 1, param)
 
     async def cancel_holidays_mode(self, modem: str) -> Any:
-        """
-        Cancel holidays mode by setting dates to 0001-01-01.
-
-        Returns:
-            API response
-
-        """
-        # Special format to cancel: W + two dates at epoch start
+        """Cancel holidays mode by setting dates to 0001-01-01."""
         param = "W00010101000000Z00010101000000Z"
         _LOGGER.info("Cancelling holidays mode for modem %s", modem)
         return await self._send_command(modem, "changeMode", 1, param)
@@ -421,49 +414,20 @@ class AldesApi:
     async def set_kwh_prices(
         self, modem: str, kwh_pleine: float, kwh_creuse: float
     ) -> Any:
-        """
-        Set electricity prices for peak and off-peak hours.
-
-        Args:
-            modem: Device modem ID
-            kwh_pleine: Peak hour price in EUR/kWh
-            kwh_creuse: Off-peak hour price in EUR/kWh
-
-        Returns:
-            API response
-
-        """
-        # Convert to millièmes d'euros (multiply by 1000)
+        """Set electricity prices for peak and off-peak hours."""
         pleine_milliemes = int(kwh_pleine * 1000)
         creuse_milliemes = int(kwh_creuse * 1000)
-
-        # Format: P{prixPlein}C{prixCreux}
         param = f"P{pleine_milliemes}C{creuse_milliemes}"
-
         _LOGGER.info(
-            "Setting kWh prices for modem %s: pleine=%.3f EUR/kWh (%d), "
-            "creuse=%.3f EUR/kWh (%d)",
+            "Setting kWh prices for modem %s: pleine=%.3f EUR/kWh, creuse=%.3f EUR/kWh",
             modem,
             kwh_pleine,
-            pleine_milliemes,
             kwh_creuse,
-            creuse_milliemes,
         )
         return await self._send_command(modem, "prixkwh", 1, param)
 
     async def set_frost_protection_mode(self, modem: str, start_date: str) -> Any:
-        """
-        Set frost protection mode (hors gel) with start date and no end date.
-
-        Args:
-            modem: Device modem ID
-            start_date: Start date in format yyyyMMddHHmmssZ (e.g., 20251220000000Z)
-
-        Returns:
-            API response
-
-        """
-        # Format: W + start_date + 00000000000000Z (no end date for frost protection)
+        """Set frost protection mode (hors gel) with start date and no end date."""
         param = f"W{start_date}00000000000000Z"
         _LOGGER.info(
             "Setting frost protection mode for modem %s from %s",
@@ -517,19 +481,7 @@ class AldesApi:
     async def get_statistics(
         self, modem: str, start_date: str, end_date: str, granularity: str = "month"
     ) -> list[Any] | dict[str, Any] | None:
-        """
-        Get device statistics.
-
-        Args:
-            modem: Device modem ID
-            start_date: Start date in format yyyyMMddHHmmssZ (e.g., 20250101000000Z)
-            end_date: End date in format yyyyMMddHHmmssZ (e.g., 20251231235959Z)
-            granularity: Statistics granularity - 'day', 'week', or 'month'
-
-        Returns:
-            Statistics data or None if request fails
-
-        """
+        """Get device statistics."""
         url = (
             f"{self._API_URL_PRODUCTS}/{modem}/statistics/"
             f"{start_date}/{end_date}/{granularity}"
@@ -546,20 +498,17 @@ class AldesApi:
         if not self._token:
             return False
         try:
-            # Décode le payload du JWT (sans vérifier la signature)
             payload = self._token.split(".")[1]
-            # Ajoute des padding si nécessaire
             payload += "=" * (-len(payload) % 4)
             decoded = json.loads(base64.b64decode(payload).decode("utf-8"))
             exp = decoded.get("exp", 0)
             if exp and datetime.now(UTC).timestamp() > exp:
-                _LOGGER.info("Token expiré selon le champ 'exp'")
+                _LOGGER.info("Token expired according to 'exp' field")
                 return False
-            # Teste une requête légère
             await self.fetch_data()
             return True
         except Exception:
-            _LOGGER.exception("Erreur lors de la vérification du token")
+            _LOGGER.exception("Error while checking token validity")
             return False
 
     def get_diagnostic_info(self) -> dict[str, Any]:
@@ -598,6 +547,7 @@ class AldesApi:
             "api_url_base": self._API_URL_BASE,
             "cache": cache_info,
             "token": token_info,
+            "health_state": self.health_state.value,
             "queue_active": (
                 self._temperature_task is not None and not self._temperature_task.done()
             ),
