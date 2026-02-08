@@ -7,24 +7,11 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import aiohttp
 
-# Add current directory to path to allow imports from custom_components
+# Add the current directory to path to allow imports from custom_components
 sys.path.append(str(Path(__file__).parent))
-
-# MOCK Home Assistant dependencies to allow importing from custom_components
-# This prevents ImportError when running outside of Home Assistant
-sys.modules["homeassistant"] = MagicMock()
-sys.modules["homeassistant.const"] = MagicMock()
-sys.modules["homeassistant.core"] = MagicMock()
-sys.modules["homeassistant.config_entries"] = MagicMock()
-sys.modules["homeassistant.helpers"] = MagicMock()
-sys.modules["homeassistant.helpers.update_coordinator"] = MagicMock()
-sys.modules["homeassistant.helpers.aiohttp_client"] = MagicMock()
-sys.modules["homeassistant.helpers.entity_registry"] = MagicMock()
-sys.modules["voluptuous"] = MagicMock()
 
 # Configure logging
 logging.basicConfig(
@@ -39,7 +26,6 @@ logging.getLogger("aiohttp").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # Import API and models from the integration
-# Note: These imports must happen AFTER the mocks are set up
 from custom_components.aldes.api import AldesApi
 from custom_components.aldes.models import CommandUid, DataApiEntity
 
