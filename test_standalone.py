@@ -2,9 +2,25 @@
 # -*- coding: utf-8 -*-
 """Standalone test menu for Aldes API without Home Assistant."""
 
+import sys
+from unittest.mock import MagicMock
+
+# MOCK Home Assistant dependencies IMMEDIATELY
+# This must be done before ANY import that might trigger custom_components loading
+sys.modules["homeassistant"] = MagicMock()
+sys.modules["homeassistant.const"] = MagicMock()
+sys.modules["homeassistant.core"] = MagicMock()
+sys.modules["homeassistant.config_entries"] = MagicMock()
+sys.modules["homeassistant.helpers"] = MagicMock()
+sys.modules["homeassistant.helpers.update_coordinator"] = MagicMock()
+sys.modules["homeassistant.helpers.aiohttp_client"] = MagicMock()
+sys.modules["homeassistant.helpers.entity_registry"] = MagicMock()
+sys.modules["voluptuous"] = MagicMock()
+
+print(f"DEBUG: voluptuous in sys.modules: {'voluptuous' in sys.modules}")
+
 import asyncio
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +42,12 @@ logging.getLogger("aiohttp").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # Import API and models from the integration
-from custom_components.aldes.api import AldesApi
-from custom_components.aldes.models import CommandUid, DataApiEntity
+try:
+    from custom_components.aldes.api import AldesApi
+    from custom_components.aldes.models import CommandUid, DataApiEntity
+except ImportError as e:
+    print(f"CRITICAL ERROR importing integration: {e}")
+    sys.exit(1)
 
 
 class AldesTestMenu:
