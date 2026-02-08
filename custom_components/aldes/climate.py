@@ -19,13 +19,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
-from custom_components.aldes.api import CommandUid
 from custom_components.aldes.const import (
     DOMAIN,
     ECO_MODE_TEMPERATURE_OFFSET,
-    AirMode,
 )
-from custom_components.aldes.entity import AldesEntity, ThermostatApiEntity
+from custom_components.aldes.entity import AldesEntity
+from custom_components.aldes.models import AirMode, CommandUid, ThermostatApiEntity
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
