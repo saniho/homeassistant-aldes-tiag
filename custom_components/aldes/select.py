@@ -22,7 +22,7 @@ from .const import (
     HouseholdComposition,
     WaterMode,
 )
-from .entity import AldesEntity
+from .entity import AldesEntity, DeviceContext
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -42,39 +42,48 @@ async def async_setup_entry(
 
     selects = []
 
-    # Collect current water mode entity
-    selects.append(
-        AldesAirModeEntity(
-            coordinator,
-            entry,
+    for device_key, device in (coordinator.data or {}).items():
+        if not device or not device.indicator:
+            continue
+        context = DeviceContext(
+            device_key=device_key,
+            device=device,
+            config_entry=entry,
         )
-    )
 
-    # Collect entities if AquaAir reference
-    if coordinator.data.reference == "TONE_AQUA_AIR":
-        # Collect current water mode entity
+        # Collect current air mode entity
         selects.append(
-            AldesWaterModeEntity(
+            AldesAirModeEntity(
                 coordinator,
-                entry,
+                context,
             )
         )
 
-        # Collect current household composition entity
-        selects.append(
-            AldesHouseholdCompositionEntity(
-                coordinator,
-                entry,
+        # Collect entities if AquaAir reference
+        if device.reference == "TONE_AQUA_AIR":
+            # Collect current water mode entity
+            selects.append(
+                AldesWaterModeEntity(
+                    coordinator,
+                    context,
+                )
             )
-        )
 
-        # Collect current antilegionella cycle entity
-        selects.append(
-            AldesAntilegionellaCycleEntity(
-                coordinator,
-                entry,
+            # Collect current household composition entity
+            selects.append(
+                AldesHouseholdCompositionEntity(
+                    coordinator,
+                    context,
+                )
             )
-        )
+
+            # Collect current antilegionella cycle entity
+            selects.append(
+                AldesAntilegionellaCycleEntity(
+                    coordinator,
+                    context,
+                )
+            )
 
     async_add_entities(selects)
 
@@ -85,10 +94,10 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Innitialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._state = None
         self._attr_current_option: AirMode | None = None
         self._attr_options: list[AirMode] = [
@@ -156,15 +165,17 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
     def state(self) -> str:
         """Return the current state of the air mode."""
         # Access the `current_air_mode` from the coordinator data
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or device.indicator is None:
             return "unavailable"
-        mode = self.coordinator.data.indicator.current_air_mode
+        mode = device.indicator.current_air_mode
         return self._attr_display_names.get(mode, mode)
 
     @property
     def available(self) -> bool:
         """Return True if the entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.is_connected
+        device = self._get_device()
+        return bool(device and device.is_connected)
 
     @property
     def icon(self) -> str:
@@ -178,9 +189,12 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             (key for key, value in self._attr_display_names.items() if value == option),
             None,
         )
+        if selected_option is None:
+            _LOGGER.warning("Unknown air mode selection: %s", option)
+            return
 
         await self._set_air_mode(
-            selected_option.value if isinstance(selected_option, AirMode) else "Unknow"
+            selected_option.value if isinstance(selected_option, AirMode) else "Unknown"
         )
 
         self._attr_current_option = selected_option
@@ -219,7 +233,8 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             await asyncio.sleep(2)
 
             # Check if coordinator data is available
-            if self.coordinator.data is None:
+            device = self._get_device()
+            if device is None or device.indicator is None:
                 _LOGGER.warning(
                     "Coordinator data is None, cannot verify air mode change"
                 )
@@ -227,12 +242,13 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
                 return
 
             expected_mode = self._pending_mode_change["expected_mode"]
-            current_mode = self.coordinator.data.indicator.current_air_mode
+            current_mode = device.indicator.current_air_mode
 
             # If the mode hasn't changed, retry the API call
             if current_mode != expected_mode:
                 _LOGGER.warning(
-                    "Air mode not updated after 1 minute (expected: %s, actual: %s). Retrying API call...",
+                    "Air mode not updated after 1 minute (expected: %s, actual: %s). "
+                    "Retrying API call...",
                     expected_mode,
                     current_mode,
                 )
@@ -256,8 +272,8 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
 
         except asyncio.CancelledError:
             _LOGGER.debug("Air mode verification cancelled")
-        except Exception as e:
-            _LOGGER.error("Error verifying air mode change: %s", e)
+        except Exception:
+            _LOGGER.exception("Error verifying air mode change")
             self._pending_mode_change = None
 
 
@@ -267,10 +283,10 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Innitialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._state = None
         self._attr_current_option: WaterMode | None = None
         self._attr_options: list[WaterMode] = [
@@ -326,15 +342,17 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
     def state(self) -> str:
         """Return the current state of the watter mode."""
         # Access the `current_water_mode` from the coordinator data
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or device.indicator is None:
             return "unavailable"
-        mode = self.coordinator.data.indicator.current_water_mode
+        mode = device.indicator.current_water_mode
         return self._attr_display_names.get(mode, mode)
 
     @property
     def available(self) -> bool:
         """Return True if the entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.is_connected
+        device = self._get_device()
+        return bool(device and device.is_connected)
 
     @property
     def icon(self) -> str:
@@ -348,11 +366,14 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
             (key for key, value in self._attr_display_names.items() if value == option),
             None,
         )
+        if selected_option is None:
+            _LOGGER.warning("Unknown water mode selection: %s", option)
+            return
 
         await self._set_water_mode(
             selected_option.value
             if isinstance(selected_option, WaterMode)
-            else "Unknow"
+            else "Unknown"
         )
 
         self._attr_current_option = selected_option
@@ -391,7 +412,8 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
             await asyncio.sleep(2)
 
             # Check if coordinator data is available
-            if self.coordinator.data is None:
+            device = self._get_device()
+            if device is None or device.indicator is None:
                 _LOGGER.warning(
                     "Coordinator data is None, cannot verify water mode change"
                 )
@@ -399,12 +421,13 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
                 return
 
             expected_mode = self._pending_water_mode_change["expected_mode"]
-            current_mode = self.coordinator.data.indicator.current_water_mode
+            current_mode = device.indicator.current_water_mode
 
             # If the mode hasn't changed, retry the API call
             if current_mode != expected_mode:
                 _LOGGER.warning(
-                    "Water mode not updated after 1 minute (expected: %s, actual: %s). Retrying API call...",
+                    "Water mode not updated after 1 minute (expected: %s, actual: %s). "
+                    "Retrying API call...",
                     expected_mode,
                     current_mode,
                 )
@@ -428,8 +451,8 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
 
         except asyncio.CancelledError:
             _LOGGER.debug("Water mode verification cancelled")
-        except Exception as e:
-            _LOGGER.error("Error verifying water mode change: %s", e)
+        except Exception:
+            _LOGGER.exception("Error verifying water mode change")
             self._pending_water_mode_change = None
 
 
@@ -442,10 +465,10 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Innitialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._attr_current_option: HouseholdComposition | None = None
         self._attr_options: list[HouseholdComposition] = [
             HouseholdComposition.TWO,
@@ -501,12 +524,13 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
     def state(self) -> str | None:
         """Return the current state of household composition."""
         # Access the `people` from the coordinator data
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or not device.indicator or not device.indicator.settings:
             return "unavailable"
         try:
-            people = HouseholdComposition(
-                str(self.coordinator.data.indicator.settings.people)
-            )
+            if device.indicator.settings.people is None:
+                return "unknown"
+            people = HouseholdComposition(str(device.indicator.settings.people))
             return self._attr_display_names.get(people, str(people))
         except ValueError:
             # Handle invalid values
@@ -515,7 +539,8 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
     @property
     def available(self) -> bool:
         """Return True if the entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.is_connected
+        device = self._get_device()
+        return bool(device and device.is_connected)
 
     @property
     def icon(self) -> str:
@@ -529,11 +554,14 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
             (key for key, value in self._attr_display_names.items() if value == option),
             None,
         )
+        if selected_option is None:
+            _LOGGER.warning("Unknown household composition selection: %s", option)
+            return
 
         await self._set_household_composition(
             selected_option.value
             if isinstance(selected_option, HouseholdComposition)
-            else "Unknow"
+            else "Unknown"
         )
 
         self._attr_current_option = selected_option
@@ -553,10 +581,10 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Innitialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._attr_current_option: AntilegionellaCycle | None = None
         self._attr_options: list[AntilegionellaCycle] = [
             AntilegionellaCycle.OFF,
@@ -618,17 +646,19 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
     def state(self) -> str:
         """Return the current state of antilegionella cycle."""
         # Access the `antilegio` from the coordinator data
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or not device.indicator or not device.indicator.settings:
             return "unavailable"
-        antilegio = AntilegionellaCycle(
-            str(self.coordinator.data.indicator.settings.antilegio)
-        )
+        if device.indicator.settings.antilegio is None:
+            return "unknown"
+        antilegio = AntilegionellaCycle(str(device.indicator.settings.antilegio))
         return self._attr_display_names.get(antilegio, str(antilegio))
 
     @property
     def available(self) -> bool:
         """Return True if the entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.is_connected
+        device = self._get_device()
+        return bool(device and device.is_connected)
 
     @property
     def icon(self) -> str:
@@ -642,11 +672,14 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
             (key for key, value in self._attr_display_names.items() if value == option),
             None,
         )
+        if selected_option is None:
+            _LOGGER.warning("Unknown antilegionella selection: %s", option)
+            return
 
         await self._set_antilegionella_cycle(
             selected_option.value
             if isinstance(selected_option, AntilegionellaCycle)
-            else "Unknow"
+            else "Unknown"
         )
 
         self._attr_current_option = selected_option

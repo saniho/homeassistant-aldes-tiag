@@ -11,7 +11,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN, FRIENDLY_NAMES, MANUFACTURER
-from .entity import AldesEntity
+from .entity import AldesEntity, DeviceContext
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -36,12 +36,23 @@ async def async_setup_entry(
     """Add Aldes number entities from a config_entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    async_add_entities(
-        [
-            AldesKwhCreuseNumber(coordinator, entry),
-            AldesKwhPleineNumber(coordinator, entry),
-        ]
-    )
+    entities: list[NumberEntity] = []
+    for device_key, device in (coordinator.data or {}).items():
+        if not device:
+            continue
+        context = DeviceContext(
+            device_key=device_key,
+            device=device,
+            config_entry=entry,
+        )
+        entities.extend(
+            [
+                AldesKwhCreuseNumber(coordinator, context),
+                AldesKwhPleineNumber(coordinator, context),
+            ]
+        )
+
+    async_add_entities(entities)
 
 
 class AldesKwhPriceNumber(AldesEntity, NumberEntity):
@@ -56,10 +67,12 @@ class AldesKwhPriceNumber(AldesEntity, NumberEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
-        self, coordinator: AldesDataUpdateCoordinator, config_entry: ConfigEntry
+        self,
+        coordinator: AldesDataUpdateCoordinator,
+        context: DeviceContext,
     ) -> None:
         """Initialize the number entity."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._pending_update_task: asyncio.Task | None = None
 
     @property
@@ -74,12 +87,9 @@ class AldesKwhPriceNumber(AldesEntity, NumberEntity):
 
     def _get_settings_value(self, attribute: str, default: float) -> float:
         """Get value from coordinator settings with fallback."""
-        if (
-            self.coordinator.data
-            and self.coordinator.data.indicator
-            and self.coordinator.data.indicator.settings
-        ):
-            value = getattr(self.coordinator.data.indicator.settings, attribute, None)
+        device = self._get_device()
+        if device and device.indicator and device.indicator.settings:
+            value = getattr(device.indicator.settings, attribute, None)
             if value is not None:
                 return value
         return default
@@ -106,13 +116,12 @@ class AldesKwhPriceNumber(AldesEntity, NumberEntity):
 
     async def _set_kwh_prices(self, kwh_pleine: float, kwh_creuse: float) -> None:
         """Set kWh prices via API."""
-        if not self.coordinator.data or not self.coordinator.data.modem:
+        device = self._get_device()
+        if not device or not device.modem:
             _LOGGER.error("Modem not available")
             return
 
-        await self.coordinator.api.set_kwh_prices(
-            self.coordinator.data.modem, kwh_pleine, kwh_creuse
-        )
+        await self.coordinator.api.set_kwh_prices(device.modem, kwh_pleine, kwh_creuse)
         await asyncio.sleep(REFRESH_DELAY_SECONDS)
         await self.coordinator.async_request_refresh()
 
@@ -132,13 +141,10 @@ class AldesKwhCreuseNumber(AldesKwhPriceNumber):
     @property
     def native_value(self) -> float | None:
         """Return the state."""
-        if not (
-            self.coordinator.data
-            and self.coordinator.data.indicator
-            and self.coordinator.data.indicator.settings
-        ):
+        device = self._get_device()
+        if not (device and device.indicator and device.indicator.settings):
             return None
-        return self.coordinator.data.indicator.settings.kwh_creuse
+        return device.indicator.settings.kwh_creuse
 
     async def _send_price_update(self, value: float) -> None:
         """Send creuse price update to API."""
@@ -161,13 +167,10 @@ class AldesKwhPleineNumber(AldesKwhPriceNumber):
     @property
     def native_value(self) -> float | None:
         """Return the state."""
-        if not (
-            self.coordinator.data
-            and self.coordinator.data.indicator
-            and self.coordinator.data.indicator.settings
-        ):
+        device = self._get_device()
+        if not (device and device.indicator and device.indicator.settings):
             return None
-        return self.coordinator.data.indicator.settings.kwh_pleine
+        return device.indicator.settings.kwh_pleine
 
     async def _send_price_update(self, value: float) -> None:
         """Send pleine price update to API."""

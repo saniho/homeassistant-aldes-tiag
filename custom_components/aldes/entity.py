@@ -1,6 +1,7 @@
 """AldesEntity class."""
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -22,8 +23,8 @@ class SettingsApiEntity:
 
     def __init__(self, data: dict[str, Any] | None) -> None:
         """Initialize."""
-        self.people = data["people"] if data else None
-        self.antilegio = data["antilegio"] if data else None
+        self.people = data.get("people") if data else None
+        self.antilegio = data.get("antilegio") if data else None
         self.kwh_creuse = data.get("kwh_creuse") if data else None
         self.kwh_pleine = data.get("kwh_pleine") if data else None
 
@@ -52,21 +53,25 @@ class IndicatorApiEntity:
 
     def __init__(self, data: dict[str, Any] | None) -> None:
         """Initialize."""
-        self.fmist = data["fmist"] if data else 0
-        self.fmast = data["fmast"] if data else 0
-        self.cmast = data["cmast"] if data else 0
-        self.cmist = data["cmist"] if data else 0
-        self.hot_water_quantity: int = data["qte_eau_chaude"] if data else 0
-        self.main_temperature: float = data["tmp_principal"] if data else 0
-        self.current_air_mode = data["current_air_mode"] if data else AirMode.OFF
-        self.current_water_mode = data["current_water_mode"] if data else WaterMode.OFF
-        self.settings = SettingsApiEntity(data["settings"] if data else None)
+        self.fmist = data.get("fmist", 0) if data else 0
+        self.fmast = data.get("fmast", 0) if data else 0
+        self.cmast = data.get("cmast", 0) if data else 0
+        self.cmist = data.get("cmist", 0) if data else 0
+        self.hot_water_quantity = data.get("qte_eau_chaude", 0) if data else 0
+        self.main_temperature = data.get("tmp_principal", 0) if data else 0
+        self.current_air_mode = data.get("current_air_mode") if data else AirMode.OFF
+        self.current_water_mode = (
+            data.get("current_water_mode") if data else WaterMode.OFF
+        )
+        self.settings = SettingsApiEntity(data.get("settings") if data else None)
 
-        if data:
+        if data and data.get("thermostats"):
             # Thermostats
             self.thermostats: list[ThermostatApiEntity] = [
                 ThermostatApiEntity(t) for t in data["thermostats"]
             ]
+        else:
+            self.thermostats = []
 
 
 class ThermostatApiEntity:
@@ -135,12 +140,12 @@ class DataApiEntity:
             self.holidays_end = indicator_data.get("date_fin_vac")
             self.hors_gel = indicator_data.get("hors_gel", False)
 
-        _LOGGER.info(
-            "DataApiEntity initialized - Device: %s (%s), Serial: %s, Connected: %s, "
-            "Plannings loaded: week_planning=%d, week_planning2=%d, week_planning3=%d, week_planning4=%d",
+        _LOGGER.debug(
+            "DataApiEntity initialized - Device: %s (%s), Connected: %s, "
+            "Plannings loaded: week_planning=%d, week_planning2=%d, "
+            "week_planning3=%d, week_planning4=%d",
             self.reference,
             self.type,
-            self.serial_number,
             self.is_connected,
             len(self.week_planning),
             len(self.week_planning2),
@@ -149,10 +154,20 @@ class DataApiEntity:
         )
 
 
+@dataclass(frozen=True)
+class DeviceContext:
+    """Context for a specific Aldes device."""
+
+    device_key: str
+    device: DataApiEntity
+    config_entry: ConfigEntry
+
+
 class AldesEntity(CoordinatorEntity):
     """Aldes entity."""
 
     coordinator: AldesDataUpdateCoordinator
+    _device_key: str
     serial_number: str
     reference: str
     modem: str
@@ -161,15 +176,22 @@ class AldesEntity(CoordinatorEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Initialize the AldesEntity."""
         super().__init__(coordinator)
-        self._attr_config_entry = config_entry
-        self.serial_number = coordinator.data.serial_number
-        self.reference = coordinator.data.reference
-        self.modem = coordinator.data.modem
-        self.is_connected = coordinator.data.is_connected
+        self._attr_config_entry = context.config_entry
+        self._device_key = context.device_key
+        self.serial_number = context.device.serial_number
+        self.reference = context.device.reference
+        self.modem = context.device.modem
+        self.is_connected = context.device.is_connected
+
+    def _get_device(self) -> DataApiEntity | None:
+        """Return current device data from the coordinator."""
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get(self._device_key)
 
     @property
     def name(self) -> str | None:

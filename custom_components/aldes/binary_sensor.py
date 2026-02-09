@@ -12,11 +12,13 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN, FRIENDLY_NAMES, MANUFACTURER
-from .entity import AldesEntity
+from .entity import AldesEntity, DeviceContext
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from custom_components.aldes.coordinator import AldesDataUpdateCoordinator
 
 
 async def async_setup_entry(
@@ -25,10 +27,22 @@ async def async_setup_entry(
     """Add Aldes binary sensors from a config_entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    binary_sensors: list[AldesBinarySensorEntity | AldesFilterSensorEntity] = [
-        AldesBinarySensorEntity(coordinator, entry),
-        AldesFilterSensorEntity(coordinator, entry),
-    ]
+    binary_sensors: list[AldesBinarySensorEntity | AldesFilterSensorEntity] = []
+
+    for device_key, device in (coordinator.data or {}).items():
+        if not device:
+            continue
+        context = DeviceContext(
+            device_key=device_key,
+            device=device,
+            config_entry=entry,
+        )
+        binary_sensors.extend(
+            [
+                AldesBinarySensorEntity(coordinator, context),
+                AldesFilterSensorEntity(coordinator, context),
+            ]
+        )
 
     async_add_entities(binary_sensors)
 
@@ -37,6 +51,14 @@ class AldesBinarySensorEntity(AldesEntity, BinarySensorEntity):
     """Define an Aldes binary sensor."""
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+
+    def __init__(
+        self,
+        coordinator: AldesDataUpdateCoordinator,
+        context: DeviceContext,
+    ) -> None:
+        """Initialize."""
+        super().__init__(coordinator, context)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -66,20 +88,24 @@ class AldesBinarySensorEntity(AldesEntity, BinarySensorEntity):
     @callback
     def _async_update_attrs(self) -> None:
         """Update binary sensor attributes."""
-        if (
-            self.serial_number
-            and self.coordinator.data is not None
-            and self.coordinator.data.is_connected
-        ):
-            self._attr_is_on = True
-        else:
-            self._attr_is_on = False
+        device = self._get_device()
+        self._attr_is_on = bool(
+            self.serial_number and device is not None and device.is_connected
+        )
 
 
 class AldesFilterSensorEntity(AldesEntity, BinarySensorEntity):
     """Define an Aldes filter wear binary sensor."""
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(
+        self,
+        coordinator: AldesDataUpdateCoordinator,
+        context: DeviceContext,
+    ) -> None:
+        """Initialize."""
+        super().__init__(coordinator, context)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -109,13 +135,14 @@ class AldesFilterSensorEntity(AldesEntity, BinarySensorEntity):
     @callback
     def _async_update_attrs(self) -> None:
         """Update filter sensor attributes."""
-        if self.coordinator.data is not None:
+        device = self._get_device()
+        if device is not None:
             # Convert None to False (0), otherwise use the boolean value
-            filter_wear = self.coordinator.data.filter_wear
+            filter_wear = device.filter_wear
             self._attr_is_on = bool(filter_wear) if filter_wear is not None else False
             # Add last update date as extra state attribute
             self._attr_extra_state_attributes = {
-                "date_dernier_changement": self.coordinator.data.date_last_filter_update
+                "date_dernier_changement": device.date_last_filter_update
             }
         else:
             self._attr_is_on = False

@@ -4,9 +4,10 @@ import asyncio
 import base64
 import json
 import logging
+from contextlib import suppress
 from datetime import UTC, datetime
 from enum import IntEnum
-from typing import Any
+from typing import Any, NoReturn
 
 import aiohttp
 import backoff
@@ -18,6 +19,13 @@ _LOGGER = logging.getLogger(__name__)
 
 HTTP_OK = 200
 HTTP_UNAUTHORIZED = 401
+
+
+def _raise_client_error(message: str) -> NoReturn:
+    """Raise a client error with a message."""
+    raise ClientError(message)
+
+
 REQUEST_DELAY = 5  # Delay between queued requests in seconds
 CACHE_TTL = 300  # Cache TTL in seconds (5 minutes)
 
@@ -82,6 +90,13 @@ class AldesApi:
             _LOGGER.exception(error_msg)
             raise AuthenticationError(error_msg) from err
 
+    async def async_close(self) -> None:
+        """Cleanup background tasks."""
+        if self._temperature_task and not self._temperature_task.done():
+            self._temperature_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._temperature_task
+
     @backoff.on_exception(
         backoff.expo,
         (ClientError, TimeoutError),
@@ -113,7 +128,7 @@ class AldesApi:
                     return data
                 msg = f"API request failed with status {response.status}"
                 _LOGGER.error(msg)
-                raise ClientError(msg)
+                _raise_client_error(msg)
         except Exception as err:
             # Log specific error type
             if isinstance(err, ClientError | TimeoutError):
@@ -147,27 +162,35 @@ class AldesApi:
         _LOGGER.info("Changing %s mode to: %s", mode_type, mode)
         return await self._send_command(modem, "changeMode", uid, mode)
 
-    async def fetch_data(self) -> Any:
+    async def fetch_data(self) -> dict[str, DataApiEntity]:
         """Fetch data."""
         _LOGGER.debug("Fetching data from Aldes API...")
         try:
             data = await self._api_request("get", self._API_URL_PRODUCTS)
         except (ClientError, TimeoutError):
             _LOGGER.exception("Failed to fetch data")
-            return None
+            return {}
         else:
             _LOGGER.debug("Fetched data: %s", data)
 
             if isinstance(data, list) and len(data) > 0:
-                # Type narrowing: data is list[Any], so data[0] is Any
-                # We check if it's a dict before passing to DataApiEntity
-                first_item: Any = data[0]
-                if isinstance(first_item, dict):
-                    _LOGGER.debug("Successfully retrieved Aldes device data")
-                    return DataApiEntity(first_item)
+                devices: dict[str, DataApiEntity] = {}
+                for item in data:
+                    if not isinstance(item, dict):
+                        continue
+                    modem = item.get("modem")
+                    if not modem:
+                        continue
+                    devices[modem] = DataApiEntity(item)
+                if devices:
+                    _LOGGER.debug(
+                        "Successfully retrieved Aldes device data: %d devices",
+                        len(devices),
+                    )
+                    return devices
 
             _LOGGER.warning("No data received from Aldes API")
-            return None
+            return {}
 
     async def _temperature_worker(self) -> None:
         """Process temperature change requests from queue with delay between each."""
@@ -448,10 +471,17 @@ class AldesApi:
                 return False
             # Teste une requête légère
             await self.fetch_data()
-            return True
-        except Exception as e:
+        except (
+            ValueError,
+            KeyError,
+            json.JSONDecodeError,
+            ClientError,
+            TimeoutError,
+        ) as e:
             _LOGGER.warning("Erreur lors de la vérification du token: %s", e)
             return False
+        else:
+            return True
 
     @property
     def token(self) -> str:
