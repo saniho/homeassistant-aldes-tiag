@@ -48,16 +48,16 @@ class AldesResetFilterButton(AldesEntity, ButtonEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_reset_filter"
+        return f"{self.device_identifier}_reset_filter"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""

@@ -130,16 +130,16 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_air_mode"
+        return f"{self.device_identifier}_air_mode"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -307,16 +307,16 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_hot_water_mode"
+        return f"{self.device_identifier}_hot_water_mode"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -489,16 +489,16 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_household_composition"
+        return f"{self.device_identifier}_household_composition"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -611,16 +611,16 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_antilegionella_cycle"
+        return f"{self.device_identifier}_antilegionella_cycle"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""

@@ -79,9 +79,9 @@ class AldesKwhPriceNumber(AldesEntity, NumberEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
@@ -132,7 +132,7 @@ class AldesKwhCreuseNumber(AldesKwhPriceNumber):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_kwh_creuse"
+        return f"{self.device_identifier}_kwh_creuse"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -158,7 +158,7 @@ class AldesKwhPleineNumber(AldesKwhPriceNumber):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_kwh_pleine"
+        return f"{self.device_identifier}_kwh_pleine"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""

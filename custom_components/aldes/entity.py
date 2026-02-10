@@ -115,20 +115,22 @@ class DataApiEntity:
 
     def __init__(self, data: dict[str, Any] | None) -> None:
         """Initialize."""
-        self.indicator = IndicatorApiEntity(data["indicator"] if data else None)
-        self.last_updated_date = data["lastUpdatedDate"] if data else ""
-        self.modem = data["modem"] if data else ""
-        self.reference = data["reference"] if data else ""
-        self.serial_number = data["serial_number"] if data else ""
-        self.type = data["type"] if data else ""
-        self.filter_wear = data["usureFiltre"] if data else False
-        self.date_last_filter_update = data["dateLastFilterUpdate"] if data else ""
-        self.has_filter = data["hasFilter"] if data else False
-        self.is_connected = data["isConnected"] if data else False
-        self.week_planning = data["week_planning"] if data else []
-        self.week_planning2 = data["week_planning2"] if data else []
-        self.week_planning3 = data["week_planning3"] if data else []
-        self.week_planning4 = data["week_planning4"] if data else []
+        self.indicator = IndicatorApiEntity(data.get("indicator") if data else None)
+        self.last_updated_date = data.get("lastUpdatedDate", "") if data else ""
+        self.modem = data.get("modem", "") if data else ""
+        self.reference = data.get("reference", "") if data else ""
+        self.serial_number = data.get("serial_number", "") if data else ""
+        self.type = data.get("type", "") if data else ""
+        self.filter_wear = data.get("usureFiltre", False) if data else False
+        self.date_last_filter_update = (
+            data.get("dateLastFilterUpdate", "") if data else ""
+        )
+        self.has_filter = data.get("hasFilter", False) if data else False
+        self.is_connected = data.get("isConnected", False) if data else False
+        self.week_planning = data.get("week_planning", []) if data else []
+        self.week_planning2 = data.get("week_planning2", []) if data else []
+        self.week_planning3 = data.get("week_planning3", []) if data else []
+        self.week_planning4 = data.get("week_planning4", []) if data else []
 
         # Parse holidays dates and frost protection from indicator if available
         self.holidays_start = None
@@ -186,6 +188,31 @@ class AldesEntity(CoordinatorEntity):
         self.reference = context.device.reference
         self.modem = context.device.modem
         self.is_connected = context.device.is_connected
+
+    @property
+    def device_identifier(self) -> str:
+        """
+        Return a stable identifier for the device.
+
+        Preference order: `serial_number` (if present and not 'N/A'), then `modem`,
+        then internal `_device_key` as a last resort.
+        """
+        # Preference: serial (to preserve existing entity IDs) -> modem -> device_key
+        try:
+            serial = (self.serial_number or "").strip()
+        except (AttributeError, TypeError):
+            serial = ""
+        if serial and serial.upper() != "N/A":
+            return serial
+
+        try:
+            modem = (self.modem or "").strip()
+        except (AttributeError, TypeError):
+            modem = ""
+        if modem:
+            return modem
+
+        return str(self._device_key)
 
     def _get_device(self) -> DataApiEntity | None:
         """Return current device data from the coordinator."""

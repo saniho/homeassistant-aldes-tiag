@@ -63,7 +63,7 @@ class AldesApi:
         self.queue_target_temperature: asyncio.Queue[tuple[str, int, str, Any]] = (
             asyncio.Queue()
         )
-        self._temperature_task = asyncio.create_task(self._temperature_worker())
+        self._temperature_task: asyncio.Task[Any] | None = None
 
     async def authenticate(self) -> None:
         """Authenticate and retrieve access token from Aldes API."""
@@ -216,6 +216,10 @@ class AldesApi:
         target_temperature: Any,
     ) -> None:
         """Set target temperature."""
+        # Lazily create temperature worker task on first use
+        if self._temperature_task is None or self._temperature_task.done():
+            self._temperature_task = asyncio.create_task(self._temperature_worker())
+
         await self.queue_target_temperature.put(
             (modem, thermostat_id, thermostat_name, target_temperature)
         )

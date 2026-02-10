@@ -148,16 +148,17 @@ class AldesPlanningEntity(AldesEntity, Entity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_planning_{self.planning_type}"
+        # Use a text-specific suffix to avoid colliding with sensor planning entities
+        return f"{self.device_identifier}_planning_text_{self.planning_type}"
 
     @property
     def icon(self) -> str:

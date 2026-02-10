@@ -125,7 +125,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             identifiers={(DOMAIN, identifier)},
             manufacturer=MANUFACTURER,
             name=f"Thermostat {self.thermostat.id!s} {self.thermostat.name}",
-            via_device=(DOMAIN, self.serial_number),
+            via_device=(DOMAIN, self.device_identifier),
         )
 
     def _friendly_name_internal(self) -> str | None:

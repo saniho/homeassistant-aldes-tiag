@@ -197,9 +197,9 @@ class BaseAldesSensorEntity(AldesEntity, SensorEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
@@ -247,7 +247,7 @@ class AldesThermostatSensorEntity(BaseAldesSensorEntity):
                 if self.thermostat.name
                 else f"Thermostat {self.thermostat.id}"
             ),
-            via_device=(DOMAIN, self.serial_number),
+            via_device=(DOMAIN, self.device_identifier),
         )
 
     def _friendly_name_internal(self) -> str | None:
@@ -286,7 +286,7 @@ class AldesWaterEntity(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_hot_water_quantity"
+        return f"{self.device_identifier}_hot_water_quantity"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -334,7 +334,7 @@ class AldesMainRoomTemperatureEntity(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_main_room_temperature"
+        return f"{self.device_identifier}_main_room_temperature"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -373,7 +373,7 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_planning_{self.planning_type}"
+        return f"{self.device_identifier}_planning_{self.planning_type}"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -463,7 +463,7 @@ class AldesFilterDateSensorEntity(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_filter_last_change"
+        return f"{self.device_identifier}_filter_last_change"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -488,7 +488,7 @@ class AldesLastUpdatedSensorEntity(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_last_updated"
+        return f"{self.device_identifier}_last_updated"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -519,7 +519,7 @@ class BaseStatisticsSensor(BaseAldesSensorEntity):
         """Initialize."""
         super().__init__(coordinator, context)
         self._attr_suggested_object_id = (
-            f"{self._suggested_object_id_suffix}_{self.serial_number}"
+            f"{self._suggested_object_id_suffix}_{self.device_identifier}"
         )
 
     async def async_added_to_hass(self) -> None:
@@ -602,7 +602,7 @@ class AldesECSConsumptionSensor(BaseStatisticsSensor):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_ecs_consumption"
+        return f"{self.device_identifier}_ecs_consumption"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -613,7 +613,9 @@ class AldesECSConsumptionSensor(BaseStatisticsSensor):
         """Return the state."""
         latest = self._get_latest_stat()
         if latest and "ecs" in latest:
-            return latest["ecs"].get("consumption")
+            consumption = latest["ecs"].get("consumption")
+            if consumption is not None:
+                return consumption
         return None
 
 
@@ -629,7 +631,7 @@ class AldesECSCostSensor(BaseStatisticsSensor):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_ecs_cost"
+        return f"{self.device_identifier}_ecs_cost"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -640,7 +642,9 @@ class AldesECSCostSensor(BaseStatisticsSensor):
         """Return the state."""
         latest = self._get_latest_stat()
         if latest and "ecs" in latest:
-            return latest["ecs"].get("cost")
+            cost = latest["ecs"].get("cost")
+            if cost is not None:
+                return cost
         return None
 
 
@@ -656,7 +660,7 @@ class AldesHeatingConsumptionSensor(BaseStatisticsSensor):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_heating_consumption"
+        return f"{self.device_identifier}_heating_consumption"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -667,7 +671,9 @@ class AldesHeatingConsumptionSensor(BaseStatisticsSensor):
         """Return the state."""
         latest = self._get_latest_stat()
         if latest and "chauffage" in latest:
-            return latest["chauffage"].get("consumption")
+            consumption = latest["chauffage"].get("consumption")
+            if consumption is not None:
+                return consumption
         return None
 
 
@@ -683,7 +689,7 @@ class AldesHeatingCostSensor(BaseStatisticsSensor):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_heating_cost"
+        return f"{self.device_identifier}_heating_cost"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -694,7 +700,9 @@ class AldesHeatingCostSensor(BaseStatisticsSensor):
         """Return the state."""
         latest = self._get_latest_stat()
         if latest and "chauffage" in latest:
-            return latest["chauffage"].get("cost")
+            cost = latest["chauffage"].get("cost")
+            if cost is not None:
+                return cost
         return None
 
 
@@ -710,7 +718,7 @@ class AldesCoolingConsumptionSensor(BaseStatisticsSensor):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_cooling_consumption"
+        return f"{self.device_identifier}_cooling_consumption"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -721,7 +729,9 @@ class AldesCoolingConsumptionSensor(BaseStatisticsSensor):
         """Return the state."""
         latest = self._get_latest_stat()
         if latest and "clim" in latest:
-            return latest["clim"].get("consumption")
+            consumption = latest["clim"].get("consumption")
+            if consumption is not None:
+                return consumption
         return None
 
 
@@ -737,7 +747,7 @@ class AldesCoolingCostSensor(BaseStatisticsSensor):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_cooling_cost"
+        return f"{self.device_identifier}_cooling_cost"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -748,7 +758,9 @@ class AldesCoolingCostSensor(BaseStatisticsSensor):
         """Return the state."""
         latest = self._get_latest_stat()
         if latest and "clim" in latest:
-            return latest["clim"].get("cost")
+            cost = latest["clim"].get("cost")
+            if cost is not None:
+                return cost
         return None
 
 
@@ -762,7 +774,7 @@ class AldesHolidaysStartSensor(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_holidays_start"
+        return f"{self.device_identifier}_holidays_start"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -797,7 +809,7 @@ class AldesHolidaysEndSensor(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_holidays_end"
+        return f"{self.device_identifier}_holidays_end"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -832,7 +844,7 @@ class AldesHorsGelSensor(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_hors_gel"
+        return f"{self.device_identifier}_hors_gel"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""

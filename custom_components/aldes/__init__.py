@@ -136,6 +136,15 @@ def _get_primary_device(
 ) -> DataApiEntity | None:
     """Return the first available device from a coordinator."""
     if coordinator and coordinator.data:
+        # Prefer a connected device when multiple devices are available
+        for device in coordinator.data.values():
+            try:
+                if getattr(device, "is_connected", False):
+                    return device
+            except AttributeError:
+                # Ignore missing attribute and continue
+                continue
+        # Fallback to the first device if none are connected
         for device in coordinator.data.values():
             return device
     return None
