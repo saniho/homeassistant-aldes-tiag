@@ -237,13 +237,14 @@ class AldesEntity(CoordinatorEntity):
         """Return the friendly name - to be overridden by subclasses."""
         return None
 
-    async def _verify_state_change_after_delay(
+    async def _verify_state_change_after_delay(  # noqa: PLR0913
         self,
         get_current_fn: Callable[[], Any],
         expected_value: Any,
         retry_fn: Callable[[], Awaitable[None]],
         threshold: float = 0,
         command_name: str = "change",
+        max_retries: int = 1,
     ) -> None:
         """
         Verify a state change was applied after a delay and retry if needed.
@@ -257,45 +258,62 @@ class AldesEntity(CoordinatorEntity):
             retry_fn: Async callable to retry the command if not applied
             threshold: Maximum allowed difference for numeric values (default 0)
             command_name: Name of the command for logging (default "change")
+            max_retries: Maximum number of retry attempts (default 1)
 
         """
         try:
-            await asyncio.sleep(VERIFY_STATE_CHANGE_DELAY)
+            for attempt in range(1, max_retries + 1):
+                await asyncio.sleep(VERIFY_STATE_CHANGE_DELAY)
 
-            # Force a coordinator refresh to get latest data
-            await self.coordinator.async_request_refresh()
-            await asyncio.sleep(VERIFY_STATE_CHANGE_REFRESH_DELAY)
-
-            # Get current value
-            current_value = get_current_fn()
-
-            # Check if the state was actually updated
-            is_changed = (
-                abs(current_value - expected_value) <= threshold
-                if isinstance(expected_value, int | float)
-                else current_value == expected_value
-            )
-
-            if not is_changed:
-                _LOGGER.warning(
-                    "%s not updated after %d seconds (expected: %s, actual: %s). "
-                    "Retrying...",
-                    command_name.title(),
-                    VERIFY_STATE_CHANGE_DELAY,
-                    expected_value,
-                    current_value,
-                )
-                # Retry the command
-                await retry_fn()
-                # Force another refresh after retry
-                await asyncio.sleep(VERIFY_STATE_CHANGE_REFRESH_DELAY)
+                # Force a coordinator refresh to get latest data
                 await self.coordinator.async_request_refresh()
-            else:
-                _LOGGER.debug(
-                    "%s successfully updated to %s",
-                    command_name.title(),
-                    expected_value,
+                await asyncio.sleep(VERIFY_STATE_CHANGE_REFRESH_DELAY)
+
+                # Get current value
+                current_value = get_current_fn()
+
+                # Check if the state was actually updated
+                is_changed = (
+                    abs(current_value - expected_value) <= threshold
+                    if isinstance(expected_value, int | float)
+                    else current_value == expected_value
                 )
+
+                if is_changed:
+                    _LOGGER.debug(
+                        "%s successfully updated to %s (attempt %d/%d)",
+                        command_name.title(),
+                        expected_value,
+                        attempt,
+                        max_retries,
+                    )
+                    break
+
+                # Not changed - log attempt and retry if we have attempts remaining
+                if attempt < max_retries:
+                    _LOGGER.warning(
+                        "%s not updated after %d seconds (attempt %d/%d, "
+                        "expected: %s, actual: %s). Retrying...",
+                        command_name.title(),
+                        VERIFY_STATE_CHANGE_DELAY,
+                        attempt,
+                        max_retries,
+                        expected_value,
+                        current_value,
+                    )
+                    # Retry the command
+                    await retry_fn()
+                else:
+                    _LOGGER.warning(
+                        "%s not updated after %d seconds (final attempt %d/%d, "
+                        "expected: %s, actual: %s)",
+                        command_name.title(),
+                        VERIFY_STATE_CHANGE_DELAY,
+                        attempt,
+                        max_retries,
+                        expected_value,
+                        current_value,
+                    )
 
         except asyncio.CancelledError:
             _LOGGER.debug("%s verification cancelled", command_name.title())

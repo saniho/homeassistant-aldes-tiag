@@ -239,6 +239,7 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             retry_fn=retry_mode,
             threshold=0,
             command_name="air mode",
+            max_retries=3,
         )
 
 
@@ -383,6 +384,7 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
             retry_fn=retry_mode,
             threshold=0,
             command_name="water mode",
+            max_retries=3,
         )
 
 

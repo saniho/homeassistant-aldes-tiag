@@ -513,6 +513,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
                 retry_fn=retry_temperature,
                 threshold=TEMPERATURE_VERIFY_THRESHOLD,
                 command_name="temperature",
+                max_retries=3,
             )
         )
 
@@ -564,6 +565,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
                 retry_fn=retry_mode,
                 threshold=0,
                 command_name="air mode",
+                max_retries=3,
             )
         )
 
