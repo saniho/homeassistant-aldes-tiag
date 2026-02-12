@@ -28,6 +28,10 @@ def _raise_client_error(message: str) -> NoReturn:
 
 REQUEST_DELAY = 5  # Delay between queued requests in seconds
 CACHE_TTL = 300  # Cache TTL in seconds (5 minutes)
+TEMPERATURE_CHANGE_MAX_RETRIES = 3  # Max retries for temperature changes in worker
+STATE_CHANGE_BACKOFF_MAX_TRIES = (
+    4  # Max tries with exponential backoff for state changes
+)
 
 
 class CommandUid(IntEnum):
@@ -64,6 +68,8 @@ class AldesApi:
             asyncio.Queue()
         )
         self._temperature_task: asyncio.Task[Any] | None = None
+        # Track pending command verifications for retry if not applied
+        self._pending_verifications: dict[str, Any] = {}
 
     async def authenticate(self) -> None:
         """Authenticate and retrieve access token from Aldes API."""
@@ -96,6 +102,60 @@ class AldesApi:
             self._temperature_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._temperature_task
+
+    def register_pending_verification(
+        self, verification_id: str, metadata: dict[str, Any]
+    ) -> None:
+        """
+        Register a pending command verification to check later if applied.
+
+        Args:
+            verification_id: Unique ID for this verification (e.g., "modem_temp_123")
+            metadata: Dict with verification details (command, modem, retry_fn, etc)
+
+        """
+        self._pending_verifications[verification_id] = {
+            "metadata": metadata,
+            "registered_at": datetime.now(UTC),
+        }
+        _LOGGER.debug(
+            "Registered pending verification %s",
+            verification_id,
+        )
+
+    def unregister_pending_verification(self, verification_id: str) -> None:
+        """Mark a verification as complete (command was applied correctly)."""
+        if verification_id in self._pending_verifications:
+            del self._pending_verifications[verification_id]
+            _LOGGER.debug(
+                "Cleared pending verification %s",
+                verification_id,
+            )
+
+    def get_pending_verifications(
+        self, timeout_seconds: int = 60
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Get all pending verifications that should be checked now.
+
+        Returns verifications that have been pending for at least timeout_seconds.
+        This is used by the coordinator to periodically check if commands were
+        actually applied, and retry if not.
+
+        Args:
+            timeout_seconds: Only return verifications older than this
+
+        Returns:
+            Dict of {verification_id: metadata} for verifications to check
+
+        """
+        now = datetime.now(UTC)
+        pending = {}
+        for vid, data in list(self._pending_verifications.items()):
+            age = (now - data["registered_at"]).total_seconds()
+            if age >= timeout_seconds:
+                pending[vid] = data["metadata"]
+        return pending
 
     @backoff.on_exception(
         backoff.expo,
@@ -156,8 +216,15 @@ class AldesApi:
                 raise ClientError(msg) from err
             raise
 
+    @backoff.on_exception(
+        backoff.expo,
+        (ClientError, TimeoutError),
+        max_tries=STATE_CHANGE_BACKOFF_MAX_TRIES,
+        max_time=30,
+        logger=None,  # Disable backoff logger to avoid duplicate logs
+    )
     async def change_mode(self, modem: str, mode: str, uid: CommandUid) -> Any:
-        """Change mode (air or hot water)."""
+        """Change mode (air or hot water) with automatic retry on failure."""
         mode_type = "air" if uid == CommandUid.AIR_MODE else "hot water"
         _LOGGER.info("Changing %s mode to: %s", mode_type, mode)
         return await self._send_command(modem, "changeMode", uid, mode)
@@ -202,9 +269,35 @@ class AldesApi:
                 temperature,
             ) = await self.queue_target_temperature.get()
             if modem and thermostat_id and thermostat_name and temperature:
-                await self.change_temperature(
-                    modem, thermostat_id, thermostat_name, temperature
-                )
+                # Retry up to max_retries times with exponential backoff
+                for attempt in range(1, TEMPERATURE_CHANGE_MAX_RETRIES + 1):
+                    try:
+                        await self.change_temperature(
+                            modem, thermostat_id, thermostat_name, temperature
+                        )
+                        _LOGGER.debug(
+                            "Temperature change succeeded on attempt %d/%d",
+                            attempt,
+                            TEMPERATURE_CHANGE_MAX_RETRIES,
+                        )
+                        break
+                    except (ClientError, TimeoutError) as err:
+                        if attempt < TEMPERATURE_CHANGE_MAX_RETRIES:
+                            backoff_seconds = 2 ** (attempt - 1)  # 1, 2, 4 seconds
+                            _LOGGER.warning(
+                                "Temperature change failed (attempt %d/%d). "
+                                "Retrying in %d seconds: %s",
+                                attempt,
+                                TEMPERATURE_CHANGE_MAX_RETRIES,
+                                backoff_seconds,
+                                err,
+                            )
+                            await asyncio.sleep(backoff_seconds)
+                        else:
+                            _LOGGER.exception(
+                                "Temperature change failed after %d attempts",
+                                TEMPERATURE_CHANGE_MAX_RETRIES,
+                            )
                 await asyncio.sleep(REQUEST_DELAY)
             self.queue_target_temperature.task_done()
 
@@ -224,6 +317,13 @@ class AldesApi:
             (modem, thermostat_id, thermostat_name, target_temperature)
         )
 
+    @backoff.on_exception(
+        backoff.expo,
+        (ClientError, TimeoutError),
+        max_tries=STATE_CHANGE_BACKOFF_MAX_TRIES,
+        max_time=30,
+        logger=None,  # Disable backoff logger to avoid duplicate logs
+    )
     async def change_temperature(
         self,
         modem: str,
@@ -231,7 +331,7 @@ class AldesApi:
         thermostat_name: str,
         target_temperature: Any,
     ) -> Any:
-        """Change temperature of thermostat."""
+        """Change temperature of thermostat with automatic retry on failure."""
         _LOGGER.info(
             "Changing temperature for thermostat %s (%s) to %s°C",
             thermostat_id,
@@ -405,8 +505,15 @@ class AldesApi:
             _LOGGER.debug("Reset filter response: %s", result)
             return result
 
+    @backoff.on_exception(
+        backoff.expo,
+        (ClientError, TimeoutError),
+        max_tries=STATE_CHANGE_BACKOFF_MAX_TRIES,
+        max_time=30,
+        logger=None,  # Disable backoff logger to avoid duplicate logs
+    )
     async def _send_command(self, modem: str, method: str, uid: int, param: str) -> Any:
-        """Send JSON-RPC command to device."""
+        """Send JSON-RPC command to device with automatic retry on failure."""
         json_payload = {
             "jsonrpc": "2.0",
             "method": method,

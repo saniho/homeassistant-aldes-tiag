@@ -1,13 +1,21 @@
 """AldesEntity class."""
 
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aldes.const import AirMode, HouseholdComposition, WaterMode
+from custom_components.aldes.const import (
+    VERIFY_STATE_CHANGE_DELAY,
+    VERIFY_STATE_CHANGE_REFRESH_DELAY,
+    AirMode,
+    HouseholdComposition,
+    WaterMode,
+)
 from custom_components.aldes.coordinator import AldesDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -228,3 +236,68 @@ class AldesEntity(CoordinatorEntity):
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name - to be overridden by subclasses."""
         return None
+
+    async def _verify_state_change_after_delay(
+        self,
+        get_current_fn: Callable[[], Any],
+        expected_value: Any,
+        retry_fn: Callable[[], Awaitable[None]],
+        threshold: float = 0,
+        command_name: str = "change",
+    ) -> None:
+        """
+        Verify a state change was applied after a delay and retry if needed.
+
+        Generic method for verifying that any state change (temperature, mode, etc.)
+        was actually applied by the API, and retry if not.
+
+        Args:
+            get_current_fn: Callable that returns the current value from device data
+            expected_value: The value we expect to have after the command
+            retry_fn: Async callable to retry the command if not applied
+            threshold: Maximum allowed difference for numeric values (default 0)
+            command_name: Name of the command for logging (default "change")
+
+        """
+        try:
+            await asyncio.sleep(VERIFY_STATE_CHANGE_DELAY)
+
+            # Force a coordinator refresh to get latest data
+            await self.coordinator.async_request_refresh()
+            await asyncio.sleep(VERIFY_STATE_CHANGE_REFRESH_DELAY)
+
+            # Get current value
+            current_value = get_current_fn()
+
+            # Check if the state was actually updated
+            is_changed = (
+                abs(current_value - expected_value) <= threshold
+                if isinstance(expected_value, int | float)
+                else current_value == expected_value
+            )
+
+            if not is_changed:
+                _LOGGER.warning(
+                    "%s not updated after %d seconds (expected: %s, actual: %s). "
+                    "Retrying...",
+                    command_name.title(),
+                    VERIFY_STATE_CHANGE_DELAY,
+                    expected_value,
+                    current_value,
+                )
+                # Retry the command
+                await retry_fn()
+                # Force another refresh after retry
+                await asyncio.sleep(VERIFY_STATE_CHANGE_REFRESH_DELAY)
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.debug(
+                    "%s successfully updated to %s",
+                    command_name.title(),
+                    expected_value,
+                )
+
+        except asyncio.CancelledError:
+            _LOGGER.debug("%s verification cancelled", command_name.title())
+        except Exception:
+            _LOGGER.exception("Error verifying %s", command_name)

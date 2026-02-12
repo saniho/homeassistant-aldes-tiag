@@ -19,7 +19,13 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, FRIENDLY_NAMES, MANUFACTURER
+from .const import (
+    DOMAIN,
+    FRIENDLY_NAMES,
+    MANUFACTURER,
+    STATISTICS_UPDATE_INTERVAL,
+    WATER_LEVEL_THRESHOLDS,
+)
 from .entity import AldesEntity, DeviceContext, ThermostatApiEntity
 
 if TYPE_CHECKING:
@@ -29,14 +35,6 @@ if TYPE_CHECKING:
     from custom_components.aldes.coordinator import AldesDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-# Constants
-STATISTICS_UPDATE_INTERVAL = 3600  # Update every hour (in seconds)
-WATER_LEVEL_THRESHOLDS = {
-    "low": 25,
-    "medium": 50,
-    "high": 75,
-}
 
 
 async def async_setup_entry(

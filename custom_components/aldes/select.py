@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.const import (
@@ -122,8 +122,6 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             AirMode.COOL_PROG_A: "Rafraîchissement Prog A",
             AirMode.COOL_PROG_B: "Rafraîchissement Prog B",
         }
-        # Track pending mode changes for retry mechanism
-        self._pending_mode_change: dict[str, Any] | None = None
         self._retry_mode_task: asyncio.Task | None = None
 
     @property
@@ -142,7 +140,7 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
         return f"{self.device_identifier}_air_mode"
 
     def _friendly_name_internal(self) -> str | None:
-        """Return the friendly name."""
+        """Return friendly name for the air mode select entity."""
         return "Mode Air"
 
     @property
@@ -204,12 +202,7 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
         if self._retry_mode_task and not self._retry_mode_task.done():
             self._retry_mode_task.cancel()
 
-        # Store the pending change for retry verification
-        self._pending_mode_change = {
-            "expected_mode": selected_option,
-        }
-
-        # Schedule retry check after 1 minute
+        # Schedule retry check
         self._retry_mode_task = asyncio.create_task(
             self._verify_air_mode_change_after_delay()
         )
@@ -219,62 +212,34 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
         await self.coordinator.api.change_mode(self.modem, mode, CommandUid.AIR_MODE)
 
     async def _verify_air_mode_change_after_delay(self) -> None:
-        """Verify air mode change after 1 minute and retry if needed."""
-        try:
-            await asyncio.sleep(60)
+        """Verify air mode change after delay and retry if needed."""
+        # Store expected mode for closure
+        expected_mode = self._attr_current_option
 
-            if not self._pending_mode_change:
-                return
+        if expected_mode is None:
+            return
 
-            # Force a coordinator refresh to get latest data
-            await self.coordinator.async_request_refresh()
-
-            # Wait a bit for the refresh to complete
-            await asyncio.sleep(2)
-
-            # Check if coordinator data is available
+        def get_current_mode() -> AirMode:
+            """Get current air mode from device."""
             device = self._get_device()
             if device is None or device.indicator is None:
-                _LOGGER.warning(
-                    "Coordinator data is None, cannot verify air mode change"
-                )
-                self._pending_mode_change = None
-                return
+                return AirMode.OFF
+            return device.indicator.current_air_mode
 
-            expected_mode = self._pending_mode_change["expected_mode"]
-            current_mode = device.indicator.current_air_mode
+        async def retry_mode() -> None:
+            """Retry changing the mode."""
+            await self.coordinator.api.change_mode(
+                self.modem, expected_mode.value, CommandUid.AIR_MODE
+            )
 
-            # If the mode hasn't changed, retry the API call
-            if current_mode != expected_mode:
-                _LOGGER.warning(
-                    "Air mode not updated after 1 minute (expected: %s, actual: %s). "
-                    "Retrying API call...",
-                    expected_mode,
-                    current_mode,
-                )
-
-                # Retry the API call
-                await self.coordinator.api.change_mode(
-                    self.modem, expected_mode.value, CommandUid.AIR_MODE
-                )
-
-                # Force another refresh after retry
-                await asyncio.sleep(2)
-                await self.coordinator.async_request_refresh()
-            else:
-                _LOGGER.debug(
-                    "Air mode successfully updated to %s",
-                    expected_mode,
-                )
-
-            # Clear pending change
-            self._pending_mode_change = None
-
-        except asyncio.CancelledError:
-            _LOGGER.debug("Air mode verification cancelled")
-        except Exception:
-            _LOGGER.exception("Error verifying air mode change")
-            self._pending_mode_change = None
+        # Use generic verification method
+        await self._verify_state_change_after_delay(
+            get_current_fn=get_current_mode,
+            expected_value=expected_mode,
+            retry_fn=retry_mode,
+            threshold=0,
+            command_name="air mode",
+        )
 
 
 class AldesWaterModeEntity(AldesEntity, SelectEntity):
@@ -299,8 +264,6 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
             WaterMode.ON: "On",
             WaterMode.BOOST: "Boost",
         }
-        # Track pending mode changes for retry mechanism
-        self._pending_water_mode_change: dict[str, Any] | None = None
         self._retry_water_mode_task: asyncio.Task | None = None
 
     @property
@@ -319,7 +282,7 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
         return f"{self.device_identifier}_hot_water_mode"
 
     def _friendly_name_internal(self) -> str | None:
-        """Return the friendly name."""
+        """Return friendly name for the hot water mode select entity."""
         return "Mode Eau chaude"
 
     @property
@@ -383,12 +346,7 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
         if self._retry_water_mode_task and not self._retry_water_mode_task.done():
             self._retry_water_mode_task.cancel()
 
-        # Store the pending change for retry verification
-        self._pending_water_mode_change = {
-            "expected_mode": selected_option,
-        }
-
-        # Schedule retry check after 1 minute
+        # Schedule retry check
         self._retry_water_mode_task = asyncio.create_task(
             self._verify_water_mode_change_after_delay()
         )
@@ -398,62 +356,34 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
         await self.coordinator.api.change_mode(self.modem, mode, CommandUid.HOT_WATER)
 
     async def _verify_water_mode_change_after_delay(self) -> None:
-        """Verify water mode change after 1 minute and retry if needed."""
-        try:
-            await asyncio.sleep(60)
+        """Verify water mode change after delay and retry if needed."""
+        # Store expected mode for closure
+        expected_mode = self._attr_current_option
 
-            if not self._pending_water_mode_change:
-                return
+        if expected_mode is None:
+            return
 
-            # Force a coordinator refresh to get latest data
-            await self.coordinator.async_request_refresh()
-
-            # Wait a bit for the refresh to complete
-            await asyncio.sleep(2)
-
-            # Check if coordinator data is available
+        def get_current_mode() -> WaterMode:
+            """Get current water mode from device."""
             device = self._get_device()
             if device is None or device.indicator is None:
-                _LOGGER.warning(
-                    "Coordinator data is None, cannot verify water mode change"
-                )
-                self._pending_water_mode_change = None
-                return
+                return WaterMode.OFF
+            return device.indicator.current_water_mode
 
-            expected_mode = self._pending_water_mode_change["expected_mode"]
-            current_mode = device.indicator.current_water_mode
+        async def retry_mode() -> None:
+            """Retry changing the mode."""
+            await self.coordinator.api.change_mode(
+                self.modem, expected_mode.value, CommandUid.HOT_WATER
+            )
 
-            # If the mode hasn't changed, retry the API call
-            if current_mode != expected_mode:
-                _LOGGER.warning(
-                    "Water mode not updated after 1 minute (expected: %s, actual: %s). "
-                    "Retrying API call...",
-                    expected_mode,
-                    current_mode,
-                )
-
-                # Retry the API call
-                await self.coordinator.api.change_mode(
-                    self.modem, expected_mode.value, CommandUid.HOT_WATER
-                )
-
-                # Force another refresh after retry
-                await asyncio.sleep(2)
-                await self.coordinator.async_request_refresh()
-            else:
-                _LOGGER.debug(
-                    "Water mode successfully updated to %s",
-                    expected_mode,
-                )
-
-            # Clear pending change
-            self._pending_water_mode_change = None
-
-        except asyncio.CancelledError:
-            _LOGGER.debug("Water mode verification cancelled")
-        except Exception:
-            _LOGGER.exception("Error verifying water mode change")
-            self._pending_water_mode_change = None
+        # Use generic verification method
+        await self._verify_state_change_after_delay(
+            get_current_fn=get_current_mode,
+            expected_value=expected_mode,
+            retry_fn=retry_mode,
+            threshold=0,
+            command_name="water mode",
+        )
 
 
 class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
@@ -501,7 +431,7 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
         return f"{self.device_identifier}_household_composition"
 
     def _friendly_name_internal(self) -> str | None:
-        """Return the friendly name."""
+        """Return friendly name for the household composition select entity."""
         return "Composition du foyer"
 
     @property
@@ -623,7 +553,7 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
         return f"{self.device_identifier}_antilegionella_cycle"
 
     def _friendly_name_internal(self) -> str | None:
-        """Return the friendly name."""
+        """Return friendly name for the antilegionella cycle select entity."""
         return "Cycle antilegionelle"
 
     @property
