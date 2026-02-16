@@ -296,6 +296,11 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         """Get the maximum temperature based on the current mode."""
         return self._get_temperature("max")
 
+    @property
+    def target_temperature_step(self) -> float:
+        """Return the supported step of target temperature."""
+        return 1.0
+
     def _get_temperature(self, temp_type: str) -> float | None:
         """Calculate the min or max temperature with ECO offset if applicable."""
         device = self._get_device()
