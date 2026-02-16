@@ -301,25 +301,35 @@ class AldesApi:
         _LOGGER.info("Changing %s mode to: %s", mode_type, mode)
         return await self._send_command(modem, "changeMode", uid, mode)
 
-    async def fetch_data(self) -> Any:
+    async def fetch_data(self) -> dict[str, DataApiEntity]:
         """Fetch data."""
         _LOGGER.debug("Fetching data from Aldes API...")
         try:
             data = await self._api_request("get", self._API_URL_PRODUCTS)
         except (ClientError, TimeoutError):
             _LOGGER.exception("Failed to fetch data")
-            return None
+            return {}
         else:
             _LOGGER.debug("Fetched data: %s", data)
 
             if isinstance(data, list) and len(data) > 0:
-                first_item: Any = data[0]
-                if isinstance(first_item, dict):
-                    _LOGGER.debug("Successfully retrieved Aldes device data")
-                    return DataApiEntity(first_item)
+                devices: dict[str, DataApiEntity] = {}
+                for item in data:
+                    if not isinstance(item, dict):
+                        continue
+                    modem = item.get("modem")
+                    if not modem:
+                        continue
+                    devices[modem] = DataApiEntity(item)
+                if devices:
+                    _LOGGER.debug(
+                        "Successfully retrieved Aldes device data: %d devices",
+                        len(devices),
+                    )
+                    return devices
 
             _LOGGER.warning("No data received from Aldes API")
-            return None
+            return {}
 
     async def _temperature_worker(self) -> None:
         """Process temperature change requests from queue with delay between each."""
