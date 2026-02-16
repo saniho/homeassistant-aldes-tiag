@@ -75,6 +75,8 @@ class AldesApi:
             asyncio.Queue[tuple[str, int, str, Any]] | None
         ) = None
         self._temperature_task: asyncio.Task[None] | None = None
+        # Track pending command verifications for retry if not applied
+        self._pending_verifications: dict[str, Any] = {}
 
     async def _ensure_temperature_worker_started(self) -> None:
         """Ensure the temperature worker task is started."""
@@ -104,6 +106,60 @@ class AldesApi:
                 await self._temperature_task
             except asyncio.CancelledError:
                 pass
+
+    def register_pending_verification(
+        self, verification_id: str, metadata: dict[str, Any]
+    ) -> None:
+        """
+        Register a pending command verification to check later if applied.
+
+        Args:
+            verification_id: Unique ID for this verification (e.g., "modem_temp_123")
+            metadata: Dict with verification details (command, modem, retry_fn, etc)
+
+        """
+        self._pending_verifications[verification_id] = {
+            "metadata": metadata,
+            "registered_at": datetime.now(UTC),
+        }
+        _LOGGER.debug(
+            "Registered pending verification %s",
+            verification_id,
+        )
+
+    def unregister_pending_verification(self, verification_id: str) -> None:
+        """Mark a verification as complete (command was applied correctly)."""
+        if verification_id in self._pending_verifications:
+            del self._pending_verifications[verification_id]
+            _LOGGER.debug(
+                "Cleared pending verification %s",
+                verification_id,
+            )
+
+    def get_pending_verifications(
+        self, timeout_seconds: int = 60
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Get all pending verifications that should be checked now.
+
+        Returns verifications that have been pending for at least timeout_seconds.
+        This is used by the coordinator to periodically check if commands were
+        actually applied, and retry if not.
+
+        Args:
+            timeout_seconds: Only return verifications older than this
+
+        Returns:
+            Dict of {verification_id: metadata} for verifications to check
+
+        """
+        now = datetime.now(UTC)
+        pending = {}
+        for vid, data in list(self._pending_verifications.items()):
+            age = (now - data["registered_at"]).total_seconds()
+            if age >= timeout_seconds:
+                pending[vid] = data["metadata"]
+        return pending
 
     def _log_request_details(
         self, method: str, url: str, headers: dict, data: Any = None
