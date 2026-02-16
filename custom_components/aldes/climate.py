@@ -107,7 +107,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             | ClimateEntityFeature.TURN_OFF
             | ClimateEntityFeature.TURN_ON
         )
-        self._attr_target_temperature_step = 1
+        self._attr_target_temperature_step = 1.0
         self._attr_hvac_action = HVACAction.OFF
         # Store effective mode for use in temperature calculations
         self._effective_air_mode: AirMode | None = None
