@@ -22,8 +22,11 @@ from homeassistant.util import dt as dt_util
 from custom_components.aldes.const import (
     DOMAIN,
     ECO_MODE_TEMPERATURE_OFFSET,
+    MANUFACTURER,
 )
-from custom_components.aldes.entity import AldesEntity
+from custom_components.aldes.entity import (
+    AldesEntity,
+)
 from custom_components.aldes.models import AirMode, CommandUid, ThermostatApiEntity
 
 if TYPE_CHECKING:
@@ -116,6 +119,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         """Return the device info."""
         return DeviceInfo(
             identifiers={(DOMAIN, str(self.thermostat.id))},
+            manufacturer=MANUFACTURER,
             name=f"Thermostat {self.thermostat.id!s} {self.thermostat.name}",
         )
 

@@ -11,7 +11,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN, FRIENDLY_NAMES, MANUFACTURER
-from .entity import AldesEntity
+from .entity import AldesEntity, DeviceContext
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -31,42 +31,51 @@ async def async_setup_entry(
 
     text_entities = []
 
-    # Add planning entities if AquaAir reference
-    if coordinator.data.reference == "TONE_AQUA_AIR":
-        # Heating programs
-        text_entities.append(
-            AldesPlanningEntity(
-                coordinator,
-                entry,
-                planning_type="heating_prog_a",
-                planning_key="week_planning",
-            )
+    for device_key, device in (coordinator.data or {}).items():
+        if not device:
+            continue
+        context = DeviceContext(
+            device_key=device_key,
+            device=device,
+            config_entry=entry,
         )
-        text_entities.append(
-            AldesPlanningEntity(
-                coordinator,
-                entry,
-                planning_type="heating_prog_b",
-                planning_key="week_planning2",
+
+        # Add planning entities if AquaAir reference
+        if device.reference == "TONE_AQUA_AIR":
+            # Heating programs
+            text_entities.append(
+                AldesPlanningEntity(
+                    coordinator,
+                    context,
+                    planning_type="heating_prog_a",
+                    planning_key="week_planning",
+                )
             )
-        )
-        # Cooling programs
-        text_entities.append(
-            AldesPlanningEntity(
-                coordinator,
-                entry,
-                planning_type="cooling_prog_c",
-                planning_key="week_planning3",
+            text_entities.append(
+                AldesPlanningEntity(
+                    coordinator,
+                    context,
+                    planning_type="heating_prog_b",
+                    planning_key="week_planning2",
+                )
             )
-        )
-        text_entities.append(
-            AldesPlanningEntity(
-                coordinator,
-                entry,
-                planning_type="cooling_prog_d",
-                planning_key="week_planning4",
+            # Cooling programs
+            text_entities.append(
+                AldesPlanningEntity(
+                    coordinator,
+                    context,
+                    planning_type="cooling_prog_c",
+                    planning_key="week_planning3",
+                )
             )
-        )
+            text_entities.append(
+                AldesPlanningEntity(
+                    coordinator,
+                    context,
+                    planning_type="cooling_prog_d",
+                    planning_key="week_planning4",
+                )
+            )
 
     async_add_entities(text_entities)
 
@@ -80,71 +89,76 @@ class AldesPlanningEntity(AldesEntity, Entity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
         planning_type: str,
         planning_key: str,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self.planning_type = planning_type
         self.planning_key = planning_key
 
     @property
     def state(self) -> str:
         """Return a short state."""
-        if not self.coordinator.data:
+        device = self._get_device()
+        if not device:
             return "unavailable"
 
         try:
-            planning = getattr(self.coordinator.data, self.planning_key, None)
+            planning = getattr(device, self.planning_key, None)
+        except Exception:
+            _LOGGER.exception("Error getting planning state %s", self.planning_type)
+            return "error"
+        else:
             if planning and isinstance(planning, list):
                 return f"{len(planning)} items"
             return "unknown"
-        except Exception as e:
-            _LOGGER.error("Error getting planning state %s: %s", self.planning_type, e)
-            return "error"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes with planning data."""
-        if not self.coordinator.data:
+        device = self._get_device()
+        if not device:
             return {}
 
         try:
-            planning = getattr(self.coordinator.data, self.planning_key, None)
-            if planning:
-                commands = [
-                    item if isinstance(item, str) else item.get("command")
-                    for item in planning
-                    if (isinstance(item, str) or isinstance(item, dict))
-                ]
-                commands = [c for c in commands if c]
-                return {
-                    "planning_data": commands,
-                    "planning_json": json.dumps(commands, indent=2),
-                    "item_count": len(commands),
-                }
-            return {}
-        except Exception as e:
-            _LOGGER.error(
-                "Error getting planning attributes %s: %s", self.planning_type, e
+            planning = getattr(device, self.planning_key, None)
+        except Exception:
+            _LOGGER.exception(
+                "Error getting planning attributes %s", self.planning_type
             )
             return {}
+        else:
+            if not planning:
+                return {}
+            commands = [
+                item if isinstance(item, str) else item.get("command")
+                for item in planning
+                if isinstance(item, str | dict)
+            ]
+            commands = [c for c in commands if c]
+            return {
+                "planning_data": commands,
+                "planning_json": json.dumps(commands, indent=2),
+                "item_count": len(commands),
+            }
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_planning_{self.planning_type}"
+        # Use a text-specific suffix to avoid colliding with sensor planning entities
+        return f"{self.device_identifier}_planning_text_{self.planning_type}"
 
     @property
     def icon(self) -> str:
@@ -168,23 +182,25 @@ class AldesPlanningEntity(AldesEntity, Entity):
     @property
     def native_value(self) -> str:
         """Return the current planning as JSON string."""
-        if not self.coordinator.data:
+        device = self._get_device()
+        if not device:
             return "{}"
 
         try:
-            planning = getattr(self.coordinator.data, self.planning_key, None)
-            if planning:
-                commands = [
-                    item if isinstance(item, str) else item.get("command")
-                    for item in planning
-                    if (isinstance(item, str) or isinstance(item, dict))
-                ]
-                commands = [c for c in commands if c]
-                return json.dumps(commands, indent=2)
+            planning = getattr(device, self.planning_key, None)
+        except Exception:
+            _LOGGER.exception("Error formatting planning %s", self.planning_type)
             return "{}"
-        except Exception as e:
-            _LOGGER.error("Error formatting planning %s: %s", self.planning_type, e)
-            return "{}"
+        else:
+            if not planning:
+                return "{}"
+            commands = [
+                item if isinstance(item, str) else item.get("command")
+                for item in planning
+                if isinstance(item, str | dict)
+            ]
+            commands = [c for c in commands if c]
+            return json.dumps(commands, indent=2)
 
     async def async_set_native_value(self, value: str) -> None:
         """Set planning value."""
@@ -206,11 +222,13 @@ class AldesPlanningEntity(AldesEntity, Entity):
             _LOGGER.info(
                 "Planning %s updated: %d items", self.planning_type, len(planning)
             )
-            # Update the coordinator data
-            setattr(self.coordinator.data, self.planning_key, planning)
+            # Update the device data
+            device = self._get_device()
+            if device:
+                setattr(device, self.planning_key, planning)
             self.async_write_ha_state()
 
-        except json.JSONDecodeError as e:
-            _LOGGER.error("Invalid JSON in planning: %s", e)
-        except Exception as e:
-            _LOGGER.error("Error setting planning: %s", e)
+        except json.JSONDecodeError:
+            _LOGGER.exception("Invalid JSON in planning")
+        except Exception:
+            _LOGGER.exception("Error setting planning")

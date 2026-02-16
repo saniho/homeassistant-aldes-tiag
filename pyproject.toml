@@ -1,0 +1,8 @@
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["ALL"]
+# PLR0913: too-many-arguments - disabled to allow _verify_state_change_after_delay
+# with multiple parameters for flexible verification scenarios
+ignore = ["PLR0913", "D100"]

@@ -78,8 +78,8 @@ class SettingsApiEntity:
 
     def __init__(self, data: dict[str, Any] | None) -> None:
         """Initialize."""
-        self.people = data["people"] if data else None
-        self.antilegio = data["antilegio"] if data else None
+        self.people = data.get("people") if data else None
+        self.antilegio = data.get("antilegio") if data else None
         self.kwh_creuse = data.get("kwh_creuse") if data else None
         self.kwh_pleine = data.get("kwh_pleine") if data else None
 
@@ -127,18 +127,20 @@ class IndicatorApiEntity:
 
     def __init__(self, data: dict[str, Any] | None) -> None:
         """Initialize."""
-        self.fmist = data["fmist"] if data else 0
-        self.fmast = data["fmast"] if data else 0
-        self.cmast = data["cmast"] if data else 0
-        self.cmist = data["cmist"] if data else 0
-        self.hot_water_quantity: int = data["qte_eau_chaude"] if data else 0
-        self.main_temperature: float = data["tmp_principal"] if data else 0
-        self.current_air_mode = data["current_air_mode"] if data else AirMode.OFF
-        self.current_water_mode = data["current_water_mode"] if data else WaterMode.OFF
-        self.settings = SettingsApiEntity(data["settings"] if data else None)
+        self.fmist = data.get("fmist", 0) if data else 0
+        self.fmast = data.get("fmast", 0) if data else 0
+        self.cmast = data.get("cmast", 0) if data else 0
+        self.cmist = data.get("cmist", 0) if data else 0
+        self.hot_water_quantity = data.get("qte_eau_chaude", 0) if data else 0
+        self.main_temperature = data.get("tmp_principal", 0) if data else 0
+        self.current_air_mode = data.get("current_air_mode") if data else AirMode.OFF
+        self.current_water_mode = (
+            data.get("current_water_mode") if data else WaterMode.OFF
+        )
+        self.settings = SettingsApiEntity(data.get("settings") if data else None)
         self.thermostats = []
 
-        if data and "thermostats" in data:
+        if data and data.get("thermostats"):
             self.thermostats = [
                 ThermostatApiEntity(t) for t in data["thermostats"]
             ]
@@ -167,20 +169,22 @@ class DataApiEntity:
 
     def __init__(self, data: dict[str, Any] | None) -> None:
         """Initialize."""
-        self.indicator = IndicatorApiEntity(data["indicator"] if data else None)
-        self.last_updated_date = data["lastUpdatedDate"] if data else ""
-        self.modem = data["modem"] if data else ""
-        self.reference = data["reference"] if data else ""
-        self.serial_number = data["serial_number"] if data else ""
-        self.type = data["type"] if data else ""
-        self.filter_wear = data["usureFiltre"] if data else False
-        self.date_last_filter_update = data["dateLastFilterUpdate"] if data else ""
-        self.has_filter = data["hasFilter"] if data else False
-        self.is_connected = data["isConnected"] if data else False
-        self.week_planning = data["week_planning"] if data else []
-        self.week_planning2 = data["week_planning2"] if data else []
-        self.week_planning3 = data["week_planning3"] if data else []
-        self.week_planning4 = data["week_planning4"] if data else []
+        self.indicator = IndicatorApiEntity(data.get("indicator") if data else None)
+        self.last_updated_date = data.get("lastUpdatedDate", "") if data else ""
+        self.modem = data.get("modem", "") if data else ""
+        self.reference = data.get("reference", "") if data else ""
+        self.serial_number = data.get("serial_number", "") if data else ""
+        self.type = data.get("type", "") if data else ""
+        self.filter_wear = data.get("usureFiltre", False) if data else False
+        self.date_last_filter_update = (
+            data.get("dateLastFilterUpdate", "") if data else ""
+        )
+        self.has_filter = data.get("hasFilter", False) if data else False
+        self.is_connected = data.get("isConnected", False) if data else False
+        self.week_planning = data.get("week_planning", []) if data else []
+        self.week_planning2 = data.get("week_planning2", []) if data else []
+        self.week_planning3 = data.get("week_planning3", []) if data else []
+        self.week_planning4 = data.get("week_planning4", []) if data else []
 
         # Parse holidays dates and frost protection from indicator if available
         self.holidays_start = None
@@ -192,12 +196,12 @@ class DataApiEntity:
             self.holidays_end = indicator_data.get("date_fin_vac")
             self.hors_gel = indicator_data.get("hors_gel", False)
 
-        _LOGGER.info(
-            "DataApiEntity initialized - Device: %s (%s), Serial: %s, Connected: %s, "
-            "Plannings loaded: week_planning=%d, week_planning2=%d, week_planning3=%d, week_planning4=%d",
+        _LOGGER.debug(
+            "DataApiEntity initialized - Device: %s (%s), Connected: %s, "
+            "Plannings loaded: week_planning=%d, week_planning2=%d, "
+            "week_planning3=%d, week_planning4=%d",
             self.reference,
             self.type,
-            self.serial_number,
             self.is_connected,
             len(self.week_planning),
             len(self.week_planning2),

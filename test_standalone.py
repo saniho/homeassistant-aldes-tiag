@@ -11,10 +11,23 @@ sys.modules["homeassistant"] = MagicMock()
 sys.modules["homeassistant.const"] = MagicMock()
 sys.modules["homeassistant.core"] = MagicMock()
 sys.modules["homeassistant.config_entries"] = MagicMock()
+sys.modules["homeassistant.util"] = MagicMock()
+sys.modules["homeassistant.util.dt"] = MagicMock()
 sys.modules["homeassistant.helpers"] = MagicMock()
 sys.modules["homeassistant.helpers.update_coordinator"] = MagicMock()
 sys.modules["homeassistant.helpers.aiohttp_client"] = MagicMock()
 sys.modules["homeassistant.helpers.entity_registry"] = MagicMock()
+sys.modules["homeassistant.helpers.device_registry"] = MagicMock()
+sys.modules["homeassistant.helpers.entity"] = MagicMock()
+sys.modules["homeassistant.components"] = MagicMock()
+sys.modules["homeassistant.components.sensor"] = MagicMock()
+sys.modules["homeassistant.components.sensor.const"] = MagicMock()
+sys.modules["homeassistant.components.binary_sensor"] = MagicMock()
+sys.modules["homeassistant.components.climate"] = MagicMock()
+sys.modules["homeassistant.components.climate.const"] = MagicMock()
+sys.modules["homeassistant.components.select"] = MagicMock()
+sys.modules["homeassistant.components.number"] = MagicMock()
+sys.modules["homeassistant.components.button"] = MagicMock()
 sys.modules["voluptuous"] = MagicMock()
 
 print(f"DEBUG: voluptuous in sys.modules: {'voluptuous' in sys.modules}")
@@ -47,6 +60,8 @@ try:
     from custom_components.aldes.models import CommandUid, DataApiEntity
 except ImportError as e:
     print(f"CRITICAL ERROR importing integration: {e}")
+    import traceback
+    traceback.print_exc()
     sys.exit(1)
 
 
@@ -120,9 +135,12 @@ class AldesTestMenu:
                 print("✗ Aucune donnée reçue de l'API.")
                 return False
 
-            # raw_data is already a DataApiEntity object because fetch_data returns it
+            # raw_data is already a dict of DataApiEntity objects because fetch_data returns it
             # (unlike the old standalone version which returned a dict)
-            if isinstance(raw_data, DataApiEntity):
+            # We take the first device found for testing
+            if isinstance(raw_data, dict) and raw_data:
+                self.data = next(iter(raw_data.values()))
+            elif isinstance(raw_data, DataApiEntity):
                 self.data = raw_data
             else:
                 # Fallback if fetch_data behavior changes
@@ -135,6 +153,8 @@ class AldesTestMenu:
 
         except Exception as e:
             print(f"✗ Erreur: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _display_account_info(self) -> None:
