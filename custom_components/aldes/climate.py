@@ -108,6 +108,7 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
             | ClimateEntityFeature.TURN_ON
         )
         self._attr_target_temperature_step = 1.0
+        self._attr_precision = 1.0
         self._attr_hvac_action = HVACAction.OFF
         # Store effective mode for use in temperature calculations
         self._effective_air_mode: AirMode | None = None
@@ -295,11 +296,6 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
     def max_temp(self) -> float | None:
         """Get the maximum temperature based on the current mode."""
         return self._get_temperature("max")
-
-    @property
-    def target_temperature_step(self) -> float:
-        """Return the supported step of target temperature."""
-        return 1.0
 
     def _get_temperature(self, temp_type: str) -> float | None:
         """Calculate the min or max temperature with ECO offset if applicable."""
