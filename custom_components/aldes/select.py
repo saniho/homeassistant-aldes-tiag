@@ -12,17 +12,20 @@ from homeassistant.const import (
 )
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .api import CommandUid
+from custom_components.aldes.models import (
+    AirMode,
+    AntilegionellaCycle,
+    CommandUid,
+    HouseholdComposition,
+    WaterMode,
+)
+
 from .const import (
     DOMAIN,
     FRIENDLY_NAMES,
     MANUFACTURER,
-    AirMode,
-    AntilegionellaCycle,
-    HouseholdComposition,
-    WaterMode,
 )
-from .entity import AldesEntity
+from .entity import AldesEntity, DeviceContext
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -42,39 +45,48 @@ async def async_setup_entry(
 
     selects = []
 
-    # Collect current water mode entity
-    selects.append(
-        AldesAirModeEntity(
-            coordinator,
-            entry,
+    for device_key, device in (coordinator.data or {}).items():
+        if not device or not device.indicator:
+            continue
+        context = DeviceContext(
+            device_key=device_key,
+            device=device,
+            config_entry=entry,
         )
-    )
 
-    # Collect entities if AquaAir reference
-    if coordinator.data.reference == "TONE_AQUA_AIR":
-        # Collect current water mode entity
+        # Collect current air mode entity
         selects.append(
-            AldesWaterModeEntity(
+            AldesAirModeEntity(
                 coordinator,
-                entry,
+                context,
             )
         )
 
-        # Collect current household composition entity
-        selects.append(
-            AldesHouseholdCompositionEntity(
-                coordinator,
-                entry,
+        # Collect entities if AquaAir reference
+        if device.reference == "TONE_AQUA_AIR":
+            # Collect current water mode entity
+            selects.append(
+                AldesWaterModeEntity(
+                    coordinator,
+                    context,
+                )
             )
-        )
 
-        # Collect current antilegionella cycle entity
-        selects.append(
-            AldesAntilegionellaCycleEntity(
-                coordinator,
-                entry,
+            # Collect current household composition entity
+            selects.append(
+                AldesHouseholdCompositionEntity(
+                    coordinator,
+                    context,
+                )
             )
-        )
+
+            # Collect current antilegionella cycle entity
+            selects.append(
+                AldesAntilegionellaCycleEntity(
+                    coordinator,
+                    context,
+                )
+            )
 
     async_add_entities(selects)
 
@@ -85,10 +97,10 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Innitialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._state = None
         self._attr_current_option: AirMode | None = None
         self._attr_options: list[AirMode] = [
@@ -113,27 +125,27 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             AirMode.COOL_PROG_A: "Rafraîchissement Prog A",
             AirMode.COOL_PROG_B: "Rafraîchissement Prog B",
         }
+        self._retry_mode_task: asyncio.Task | None = None
         # Track pending mode changes for retry mechanism
         self._pending_mode_change: dict[str, Any] | None = None
-        self._retry_mode_task: asyncio.Task | None = None
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_air_mode"
+        return f"{self.device_identifier}_air_mode"
 
     def _friendly_name_internal(self) -> str | None:
-        """Return the friendly name."""
+        """Return friendly name for the air mode select entity."""
         return "Mode Air"
 
     @property
@@ -156,15 +168,17 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
     def state(self) -> str:
         """Return the current state of the air mode."""
         # Access the `current_air_mode` from the coordinator data
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or device.indicator is None:
             return "unavailable"
-        mode = self.coordinator.data.indicator.current_air_mode
+        mode = device.indicator.current_air_mode
         return self._attr_display_names.get(mode, mode)
 
     @property
     def available(self) -> bool:
         """Return True if the entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.is_connected
+        device = self._get_device()
+        return bool(device and device.is_connected)
 
     @property
     def icon(self) -> str:
@@ -178,9 +192,12 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             (key for key, value in self._attr_display_names.items() if value == option),
             None,
         )
+        if selected_option is None:
+            _LOGGER.warning("Unknown air mode selection: %s", option)
+            return
 
         await self._set_air_mode(
-            selected_option.value if isinstance(selected_option, AirMode) else "Unknow"
+            selected_option.value if isinstance(selected_option, AirMode) else "Unknown"
         )
 
         self._attr_current_option = selected_option
@@ -195,7 +212,7 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             "expected_mode": selected_option,
         }
 
-        # Schedule retry check after 1 minute
+        # Schedule retry check
         self._retry_mode_task = asyncio.create_task(
             self._verify_air_mode_change_after_delay()
         )
@@ -205,7 +222,7 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
         await self.coordinator.api.change_mode(self.modem, mode, CommandUid.AIR_MODE)
 
     async def _verify_air_mode_change_after_delay(self) -> None:
-        """Verify air mode change after 1 minute and retry if needed."""
+        """Verify air mode change after delay and retry if needed."""
         try:
             await asyncio.sleep(60)
 
@@ -227,7 +244,10 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
                 return
 
             expected_mode = self._pending_mode_change["expected_mode"]
-            current_mode = self.coordinator.data.indicator.current_air_mode
+            device = self._get_device()
+            if device is None or device.indicator is None:
+                return
+            current_mode = device.indicator.current_air_mode
 
             # If the mode hasn't changed, retry the API call
             if current_mode != expected_mode:
@@ -267,10 +287,10 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Innitialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._state = None
         self._attr_current_option: WaterMode | None = None
         self._attr_options: list[WaterMode] = [
@@ -283,27 +303,27 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
             WaterMode.ON: "On",
             WaterMode.BOOST: "Boost",
         }
+        self._retry_water_mode_task: asyncio.Task | None = None
         # Track pending mode changes for retry mechanism
         self._pending_water_mode_change: dict[str, Any] | None = None
-        self._retry_water_mode_task: asyncio.Task | None = None
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_hot_water_mode"
+        return f"{self.device_identifier}_hot_water_mode"
 
     def _friendly_name_internal(self) -> str | None:
-        """Return the friendly name."""
+        """Return friendly name for the hot water mode select entity."""
         return "Mode Eau chaude"
 
     @property
@@ -326,15 +346,17 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
     def state(self) -> str:
         """Return the current state of the watter mode."""
         # Access the `current_water_mode` from the coordinator data
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or device.indicator is None:
             return "unavailable"
-        mode = self.coordinator.data.indicator.current_water_mode
+        mode = device.indicator.current_water_mode
         return self._attr_display_names.get(mode, mode)
 
     @property
     def available(self) -> bool:
         """Return True if the entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.is_connected
+        device = self._get_device()
+        return bool(device and device.is_connected)
 
     @property
     def icon(self) -> str:
@@ -348,11 +370,14 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
             (key for key, value in self._attr_display_names.items() if value == option),
             None,
         )
+        if selected_option is None:
+            _LOGGER.warning("Unknown water mode selection: %s", option)
+            return
 
         await self._set_water_mode(
             selected_option.value
             if isinstance(selected_option, WaterMode)
-            else "Unknow"
+            else "Unknown"
         )
 
         self._attr_current_option = selected_option
@@ -367,7 +392,7 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
             "expected_mode": selected_option,
         }
 
-        # Schedule retry check after 1 minute
+        # Schedule retry check
         self._retry_water_mode_task = asyncio.create_task(
             self._verify_water_mode_change_after_delay()
         )
@@ -377,60 +402,35 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
         await self.coordinator.api.change_mode(self.modem, mode, CommandUid.HOT_WATER)
 
     async def _verify_water_mode_change_after_delay(self) -> None:
-        """Verify water mode change after 1 minute and retry if needed."""
-        try:
-            await asyncio.sleep(60)
+        """Verify water mode change after delay and retry if needed."""
+        # Store expected mode for closure
+        expected_mode = self._attr_current_option
 
-            if not self._pending_water_mode_change:
-                return
+        if expected_mode is None:
+            return
 
-            # Force a coordinator refresh to get latest data
-            await self.coordinator.async_request_refresh()
+        def get_current_mode() -> WaterMode:
+            """Get current water mode from device."""
+            device = self._get_device()
+            if device is None or device.indicator is None:
+                return WaterMode.OFF
+            return device.indicator.current_water_mode
 
-            # Wait a bit for the refresh to complete
-            await asyncio.sleep(2)
+        async def retry_mode() -> None:
+            """Retry changing the mode."""
+            await self.coordinator.api.change_mode(
+                self.modem, expected_mode.value, CommandUid.HOT_WATER
+            )
 
-            # Check if coordinator data is available
-            if self.coordinator.data is None:
-                _LOGGER.warning(
-                    "Coordinator data is None, cannot verify water mode change"
-                )
-                self._pending_water_mode_change = None
-                return
-
-            expected_mode = self._pending_water_mode_change["expected_mode"]
-            current_mode = self.coordinator.data.indicator.current_water_mode
-
-            # If the mode hasn't changed, retry the API call
-            if current_mode != expected_mode:
-                _LOGGER.warning(
-                    "Water mode not updated after 1 minute (expected: %s, actual: %s). Retrying API call...",
-                    expected_mode,
-                    current_mode,
-                )
-
-                # Retry the API call
-                await self.coordinator.api.change_mode(
-                    self.modem, expected_mode.value, CommandUid.HOT_WATER
-                )
-
-                # Force another refresh after retry
-                await asyncio.sleep(2)
-                await self.coordinator.async_request_refresh()
-            else:
-                _LOGGER.debug(
-                    "Water mode successfully updated to %s",
-                    expected_mode,
-                )
-
-            # Clear pending change
-            self._pending_water_mode_change = None
-
-        except asyncio.CancelledError:
-            _LOGGER.debug("Water mode verification cancelled")
-        except Exception as e:
-            _LOGGER.error("Error verifying water mode change: %s", e)
-            self._pending_water_mode_change = None
+        # Use generic verification method
+        await self._verify_state_change_after_delay(
+            get_current_fn=get_current_mode,
+            expected_value=expected_mode,
+            retry_fn=retry_mode,
+            threshold=0,
+            command_name="water mode",
+            max_retries=3,
+        )
 
 
 class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
@@ -442,10 +442,10 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Innitialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._attr_current_option: HouseholdComposition | None = None
         self._attr_options: list[HouseholdComposition] = [
             HouseholdComposition.TWO,
@@ -466,19 +466,19 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_household_composition"
+        return f"{self.device_identifier}_household_composition"
 
     def _friendly_name_internal(self) -> str | None:
-        """Return the friendly name."""
+        """Return friendly name for the household composition select entity."""
         return "Composition du foyer"
 
     @property
@@ -501,12 +501,13 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
     def state(self) -> str | None:
         """Return the current state of household composition."""
         # Access the `people` from the coordinator data
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or not device.indicator or not device.indicator.settings:
             return "unavailable"
         try:
-            people = HouseholdComposition(
-                str(self.coordinator.data.indicator.settings.people)
-            )
+            if device.indicator.settings.people is None:
+                return "unknown"
+            people = HouseholdComposition(str(device.indicator.settings.people))
             return self._attr_display_names.get(people, str(people))
         except ValueError:
             # Handle invalid values
@@ -515,7 +516,8 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
     @property
     def available(self) -> bool:
         """Return True if the entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.is_connected
+        device = self._get_device()
+        return bool(device and device.is_connected)
 
     @property
     def icon(self) -> str:
@@ -529,11 +531,14 @@ class AldesHouseholdCompositionEntity(AldesEntity, SelectEntity):
             (key for key, value in self._attr_display_names.items() if value == option),
             None,
         )
+        if selected_option is None:
+            _LOGGER.warning("Unknown household composition selection: %s", option)
+            return
 
         await self._set_household_composition(
             selected_option.value
             if isinstance(selected_option, HouseholdComposition)
-            else "Unknow"
+            else "Unknown"
         )
 
         self._attr_current_option = selected_option
@@ -553,10 +558,10 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Innitialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._attr_current_option: AntilegionellaCycle | None = None
         self._attr_options: list[AntilegionellaCycle] = [
             AntilegionellaCycle.OFF,
@@ -583,19 +588,19 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_antilegionella_cycle"
+        return f"{self.device_identifier}_antilegionella_cycle"
 
     def _friendly_name_internal(self) -> str | None:
-        """Return the friendly name."""
+        """Return friendly name for the antilegionella cycle select entity."""
         return "Cycle antilegionelle"
 
     @property
@@ -618,17 +623,19 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
     def state(self) -> str:
         """Return the current state of antilegionella cycle."""
         # Access the `antilegio` from the coordinator data
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or not device.indicator or not device.indicator.settings:
             return "unavailable"
-        antilegio = AntilegionellaCycle(
-            str(self.coordinator.data.indicator.settings.antilegio)
-        )
+        if device.indicator.settings.antilegio is None:
+            return "unknown"
+        antilegio = AntilegionellaCycle(str(device.indicator.settings.antilegio))
         return self._attr_display_names.get(antilegio, str(antilegio))
 
     @property
     def available(self) -> bool:
         """Return True if the entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.is_connected
+        device = self._get_device()
+        return bool(device and device.is_connected)
 
     @property
     def icon(self) -> str:
@@ -642,11 +649,14 @@ class AldesAntilegionellaCycleEntity(AldesEntity, SelectEntity):
             (key for key, value in self._attr_display_names.items() if value == option),
             None,
         )
+        if selected_option is None:
+            _LOGGER.warning("Unknown antilegionella selection: %s", option)
+            return
 
         await self._set_antilegionella_cycle(
             selected_option.value
             if isinstance(selected_option, AntilegionellaCycle)
-            else "Unknow"
+            else "Unknown"
         )
 
         self._attr_current_option = selected_option

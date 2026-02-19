@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.components.sensor.const import SensorDeviceClass
+from homeassistant.components.sensor.const import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     EVENT_HOMEASSISTANT_STARTED,
     PERCENTAGE,
@@ -20,7 +20,8 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, FRIENDLY_NAMES, MANUFACTURER
-from .entity import AldesEntity, ThermostatApiEntity
+from .entity import AldesEntity, DeviceContext
+from .models import ApiHealthState, ThermostatApiEntity
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -47,76 +48,96 @@ async def async_setup_entry(
 
     sensors = []
 
-    # Collect thermostat sensors
-    sensors.extend(
-        [
-            AldesThermostatSensorEntity(
+    for device_key, device in (coordinator.data or {}).items():
+        if not device or not device.indicator:
+            continue
+        context = DeviceContext(
+            device_key=device_key,
+            device=device,
+            config_entry=entry,
+        )
+
+        # Collect thermostat sensors
+        sensors.extend(
+            [
+                AldesThermostatSensorEntity(
+                    coordinator,
+                    context,
+                    thermostat,
+                )
+                for thermostat in device.indicator.thermostats
+            ]
+        )
+
+        # Collect Main Room Temperature sensor
+        sensors.append(
+            AldesMainRoomTemperatureEntity(
                 coordinator,
-                entry,
-                thermostat,
+                context,
             )
-            for thermostat in coordinator.data.indicator.thermostats
-        ]
-    )
-
-    # Collect Main Room Temperature sensor
-    sensors.append(
-        AldesMainRoomTemperatureEntity(
-            coordinator,
-            entry,
         )
-    )
 
-    # Add filter sensor (always present)
-    sensors.append(
-        AldesFilterDateSensorEntity(
-            coordinator,
-            entry,
+        # Add filter sensor (always present)
+        sensors.append(
+            AldesFilterDateSensorEntity(
+                coordinator,
+                context,
+            )
         )
-    )
 
-    # Add last updated sensor
-    sensors.append(
-        AldesLastUpdatedSensorEntity(
-            coordinator,
-            entry,
+        # Add last updated sensor
+        sensors.append(
+            AldesLastUpdatedSensorEntity(
+                coordinator,
+                context,
+            )
         )
-    )
 
-    # Add AquaAir specific sensors
-    is_aqua_air = coordinator.data.reference == "TONE_AQUA_AIR"
-    if is_aqua_air:
-        sensors.append(AldesWaterEntity(coordinator, entry))
+        # Add AquaAir specific sensors
+        is_aqua_air = device.reference == "TONE_AQUA_AIR"
+        if is_aqua_air:
+            sensors.append(AldesWaterEntity(coordinator, context))
 
-    # Add statistics sensors
-    statistics_sensors = _create_statistics_sensors(coordinator, entry, is_aqua_air)
-    sensors.extend(statistics_sensors)
+        # Add statistics sensors
+        statistics_sensors = _create_statistics_sensors(coordinator, context, is_aqua_air)
+        sensors.extend(statistics_sensors)
 
-    # Add planning sensors (for all models)
-    sensors.extend(
-        [
-            AldesPlanningEntity(coordinator, entry, "heating_prog_a", "week_planning"),
-            AldesPlanningEntity(coordinator, entry, "heating_prog_b", "week_planning2"),
-            AldesPlanningEntity(coordinator, entry, "cooling_prog_c", "week_planning3"),
-            AldesPlanningEntity(coordinator, entry, "cooling_prog_d", "week_planning4"),
-        ]
-    )
+        # Add planning sensors (for all models)
+        sensors.extend(
+            [
+                AldesPlanningEntity(coordinator, context, "heating_prog_a", "week_planning"),
+                AldesPlanningEntity(coordinator, context, "heating_prog_b", "week_planning2"),
+                AldesPlanningEntity(coordinator, context, "cooling_prog_c", "week_planning3"),
+                AldesPlanningEntity(coordinator, context, "cooling_prog_d", "week_planning4"),
+            ]
+        )
 
-    # Add holidays and frost protection sensors
-    sensors.extend(
-        [
-            AldesHolidaysStartSensor(coordinator, entry),
-            AldesHolidaysEndSensor(coordinator, entry),
-            AldesHorsGelSensor(coordinator, entry),
-        ]
-    )
+        # Add holidays and frost protection sensors
+        sensors.extend(
+            [
+                AldesHolidaysStartSensor(coordinator, context),
+                AldesHolidaysEndSensor(coordinator, context),
+                AldesHorsGelSensor(coordinator, context),
+            ]
+        )
+
+        # Add diagnostic sensors
+        sensors.extend(
+            [
+                AldesApiHealthSensor(coordinator, context),
+                AldesDeviceInfoSensor(coordinator, context),
+                AldesThermostatsCountSensor(coordinator, context),
+                AldesTemperatureLimitsSensor(coordinator, context),
+                AldesSettingsSensor(coordinator, context),
+            ]
+        )
 
     async_add_entities(sensors)
 
 
 def _create_statistics_sensors(
     coordinator: AldesDataUpdateCoordinator,
-    entry: ConfigEntry,
+    context: DeviceContext,
     is_aqua_air: bool,
 ) -> list[SensorEntity]:
     """Create statistics sensors based on device type."""
@@ -126,18 +147,18 @@ def _create_statistics_sensors(
     if is_aqua_air:
         sensors.extend(
             [
-                AldesECSConsumptionSensor(coordinator, entry),
-                AldesECSCostSensor(coordinator, entry),
+                AldesECSConsumptionSensor(coordinator, context),
+                AldesECSCostSensor(coordinator, context),
             ]
         )
 
     # Add heating and cooling sensors for all models
     sensors.extend(
         [
-            AldesHeatingConsumptionSensor(coordinator, entry),
-            AldesHeatingCostSensor(coordinator, entry),
-            AldesCoolingConsumptionSensor(coordinator, entry),
-            AldesCoolingCostSensor(coordinator, entry),
+            AldesHeatingConsumptionSensor(coordinator, context),
+            AldesHeatingCostSensor(coordinator, context),
+            AldesCoolingConsumptionSensor(coordinator, context),
+            AldesCoolingCostSensor(coordinator, context),
         ]
     )
 
@@ -150,19 +171,19 @@ class BaseAldesSensorEntity(AldesEntity, SensorEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._state: Any | None = None
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
@@ -186,11 +207,11 @@ class AldesThermostatSensorEntity(BaseAldesSensorEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
         thermostat: ThermostatApiEntity,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self.thermostat = thermostat
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
@@ -206,6 +227,7 @@ class AldesThermostatSensorEntity(BaseAldesSensorEntity):
                 if self.thermostat.name
                 else f"Thermostat {self.thermostat.id}"
             ),
+            via_device=(DOMAIN, self.device_identifier),
         )
 
     @property
@@ -224,10 +246,14 @@ class AldesThermostatSensorEntity(BaseAldesSensorEntity):
             _LOGGER.debug("Coordinator data is None, skipping update")
             return
 
+        device = self._get_device()
+        if not device or not device.indicator:
+            return
+
         thermostat = next(
             (
                 t
-                for t in self.coordinator.data.indicator.thermostats
+                for t in device.indicator.thermostats
                 if t.id == self.thermostat.id
             ),
             None,
@@ -243,16 +269,16 @@ class AldesWaterEntity(BaseAldesSensorEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._attr_native_unit_of_measurement = PERCENTAGE
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_hot_water_quantity"
+        return f"{self.device_identifier}_hot_water_quantity"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -275,13 +301,14 @@ class AldesWaterEntity(BaseAldesSensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update attributes when the coordinator updates."""
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or device.indicator is None:
             self._update_state(None)
         else:
             quantity = min(
-                100, max(self.coordinator.data.indicator.hot_water_quantity, 0)
+                100, max(device.indicator.hot_water_quantity, 0)
             )
-            self._update_state(quantity if self.coordinator.data.is_connected else None)
+            self._update_state(quantity if device.is_connected else None)
         super()._handle_coordinator_update()
 
 
@@ -291,17 +318,17 @@ class AldesMainRoomTemperatureEntity(BaseAldesSensorEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_main_room_temperature"
+        return f"{self.device_identifier}_main_room_temperature"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -310,12 +337,13 @@ class AldesMainRoomTemperatureEntity(BaseAldesSensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update attributes when the coordinator updates."""
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None or device.indicator is None:
             self._update_state(None)
         else:
             self._update_state(
-                self.coordinator.data.indicator.main_temperature
-                if self.coordinator.data.is_connected
+                device.indicator.main_temperature
+                if device.is_connected
                 else None
             )
         super()._handle_coordinator_update()
@@ -329,19 +357,19 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
     def __init__(
         self,
         coordinator: AldesDataUpdateCoordinator,
-        config_entry: ConfigEntry,
+        context: DeviceContext,
         planning_type: str,
         planning_key: str,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, context)
         self.planning_type = planning_type
         self.planning_key = planning_key
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_planning_{self.planning_type}"
+        return f"{self.device_identifier}_planning_{self.planning_type}"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -365,11 +393,12 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
     @property
     def native_value(self) -> str | None:
         """Return the state."""
-        if not self.coordinator.data:
+        device = self._get_device()
+        if not device:
             return "unavailable"
 
         try:
-            planning = getattr(self.coordinator.data, self.planning_key, None)
+            planning = getattr(device, self.planning_key, None)
             if planning and isinstance(planning, list):
                 return f"{len(planning)} items"
             return "unknown"
@@ -380,11 +409,12 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes with planning data."""
-        if not self.coordinator.data:
+        device = self._get_device()
+        if not device:
             return {}
 
         try:
-            planning = getattr(self.coordinator.data, self.planning_key, None)
+            planning = getattr(device, self.planning_key, None)
             if planning:
                 commands = [
                     item if isinstance(item, str) else item.get("command")
@@ -430,7 +460,7 @@ class AldesFilterDateSensorEntity(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_filter_last_change"
+        return f"{self.device_identifier}_filter_last_change"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -439,9 +469,10 @@ class AldesFilterDateSensorEntity(BaseAldesSensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update attributes when the coordinator updates."""
+        device = self._get_device()
         timestamp = (
-            self.coordinator.data.date_last_filter_update
-            if self.coordinator.data
+            device.date_last_filter_update
+            if device
             else None
         )
         self._update_state(_parse_utc_to_local(timestamp))
@@ -458,7 +489,7 @@ class AldesLastUpdatedSensorEntity(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_last_updated"
+        return f"{self.device_identifier}_last_updated"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -467,8 +498,9 @@ class AldesLastUpdatedSensorEntity(BaseAldesSensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update attributes when the coordinator updates."""
+        device = self._get_device()
         timestamp = (
-            self.coordinator.data.last_updated_date if self.coordinator.data else None
+            device.last_updated_date if device else None
         )
         self._update_state(_parse_utc_to_local(timestamp))
         super()._handle_coordinator_update()
@@ -554,13 +586,13 @@ class AldesECSConsumptionSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = "kWh"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:water-boiler"
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_ecs_consumption"
+        return f"{self.device_identifier}_ecs_consumption"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -580,13 +612,13 @@ class AldesECSCostSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "EUR"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_icon = "mdi:cash"
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_ecs_cost"
+        return f"{self.device_identifier}_ecs_cost"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -606,13 +638,13 @@ class AldesHeatingConsumptionSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = "kWh"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:radiator"
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_heating_consumption"
+        return f"{self.device_identifier}_heating_consumption"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -632,13 +664,13 @@ class AldesHeatingCostSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "EUR"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_icon = "mdi:cash"
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_heating_cost"
+        return f"{self.device_identifier}_heating_cost"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -658,13 +690,13 @@ class AldesCoolingConsumptionSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = "kWh"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:snowflake"
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_cooling_consumption"
+        return f"{self.device_identifier}_cooling_consumption"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -684,13 +716,13 @@ class AldesCoolingCostSensor(BaseStatisticsSensor):
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "EUR"
-    _attr_state_class = "total"
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_icon = "mdi:cash"
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_cooling_cost"
+        return f"{self.device_identifier}_cooling_cost"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -715,7 +747,7 @@ class AldesHolidaysStartSensor(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_holidays_start"
+        return f"{self.device_identifier}_holidays_start"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -724,17 +756,18 @@ class AldesHolidaysStartSensor(BaseAldesSensorEntity):
     @property
     def native_value(self) -> datetime | None:
         """Return the state."""
-        if self.coordinator.data is None or not self.coordinator.data.holidays_start:
+        device = self._get_device()
+        if device is None or not device.holidays_start:
             return None
         try:
             # Parse "2025-12-11 20:57:06Z" format
             return datetime.strptime(
-                self.coordinator.data.holidays_start, "%Y-%m-%d %H:%M:%SZ"
+                device.holidays_start, "%Y-%m-%d %H:%M:%SZ"
             ).replace(tzinfo=dt_util.UTC)
         except (ValueError, TypeError):
             _LOGGER.warning(
                 "Failed to parse holidays_start: %s",
-                self.coordinator.data.holidays_start,
+                device.holidays_start,
             )
             return None
 
@@ -749,7 +782,7 @@ class AldesHolidaysEndSensor(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_holidays_end"
+        return f"{self.device_identifier}_holidays_end"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -758,17 +791,18 @@ class AldesHolidaysEndSensor(BaseAldesSensorEntity):
     @property
     def native_value(self) -> datetime | None:
         """Return the state."""
-        if self.coordinator.data is None or not self.coordinator.data.holidays_end:
+        device = self._get_device()
+        if device is None or not device.holidays_end:
             return None
         try:
             # Parse "2025-12-11 20:57:06Z" format
             return datetime.strptime(
-                self.coordinator.data.holidays_end, "%Y-%m-%d %H:%M:%SZ"
+                device.holidays_end, "%Y-%m-%d %H:%M:%SZ"
             ).replace(tzinfo=dt_util.UTC)
         except (ValueError, TypeError):
             _LOGGER.warning(
                 "Failed to parse holidays_end: %s",
-                self.coordinator.data.holidays_end,
+                device.holidays_end,
             )
             return None
 
@@ -783,7 +817,7 @@ class AldesHorsGelSensor(BaseAldesSensorEntity):
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_hors_gel"
+        return f"{self.device_identifier}_hors_gel"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -792,6 +826,224 @@ class AldesHorsGelSensor(BaseAldesSensorEntity):
     @property
     def native_value(self) -> str:
         """Return the state."""
-        if self.coordinator.data is None:
+        device = self._get_device()
+        if device is None:
             return "unknown"
-        return "Actif" if self.coordinator.data.hors_gel else "Inactif"
+        return "Actif" if device.hors_gel else "Inactif"
+
+
+class AldesApiHealthSensor(BaseAldesSensorEntity):
+    """Sensor for API connectivity status."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [state.value for state in ApiHealthState]
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.device_identifier}_api_health"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "État API Aldes"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        return self.coordinator.api.health_state.value
+
+    @property
+    def icon(self) -> str:
+        """Return a dynamic icon based on the health state."""
+        state_map = {
+            ApiHealthState.ONLINE: "mdi:cloud-check",
+            ApiHealthState.RETRYING: "mdi:cloud-sync",
+            ApiHealthState.DEGRADED: "mdi:cloud-alert",
+            ApiHealthState.OFFLINE: "mdi:cloud-off-outline",
+        }
+        return state_map.get(self.coordinator.api.health_state, "mdi:cloud-question")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with diagnostic data."""
+        try:
+            return self.coordinator.api.get_diagnostic_info()
+        except Exception as e:
+            _LOGGER.warning("Error getting API diagnostic info: %s", e)
+            return {}
+
+
+class AldesDeviceInfoSensor(BaseAldesSensorEntity):
+    """Sensor for device information and diagnostics."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:information"
+    _attr_entity_registry_visible_default = False
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.device_identifier}_device_info"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "Informations Appareil"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        device = self._get_device()
+        if device is None:
+            return "unknown"
+        return f"{device.reference} ({device.type})"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with device details."""
+        device = self._get_device()
+        if device is None:
+            return {}
+
+        return {
+            "reference": device.reference,
+            "type": device.type,
+            "serial_number": device.serial_number,
+            "modem": device.modem,
+            "is_connected": device.is_connected,
+            "thermostats_count": len(device.indicator.thermostats),
+            "has_filter": device.has_filter,
+            "filter_wear": device.filter_wear,
+        }
+
+
+class AldesThermostatsCountSensor(BaseAldesSensorEntity):
+    """Sensor for thermostat count."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:thermometer"
+    _attr_entity_registry_visible_default = False
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.device_identifier}_thermostats_count"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "Nombre de Thermostats"
+
+    @property
+    def native_value(self) -> int:
+        """Return the state."""
+        device = self._get_device()
+        if device is None:
+            return 0
+        return len(device.indicator.thermostats)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with thermostat details."""
+        device = self._get_device()
+        if device is None:
+            return {}
+
+        thermostats = []
+        thermostats = [
+            {
+                "id": t.id,
+                "name": t.name,
+                "number": t.number,
+                "current_temperature": t.current_temperature,
+                "temperature_set": t.temperature_set,
+            }
+            for t in device.indicator.thermostats
+        ]
+
+        return {"thermostats": thermostats}
+
+
+class AldesTemperatureLimitsSensor(BaseAldesSensorEntity):
+    """Sensor for temperature limits (heating and cooling)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:thermometer-lines"
+    _attr_entity_registry_visible_default = False
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.device_identifier}_temperature_limits"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "Limites de Température"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        device = self._get_device()
+        if device is None:
+            return "unknown"
+        indicator = device.indicator
+        return (
+            f"H: {indicator.fmist}°C-{indicator.fmast}°C, "
+            f"C: {indicator.cmist}°C-{indicator.cmast}°C"
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with temperature limits."""
+        device = self._get_device()
+        if device is None:
+            return {}
+
+        indicator = device.indicator
+        return {
+            "heat_min": indicator.fmist,
+            "heat_max": indicator.fmast,
+            "cool_min": indicator.cmist,
+            "cool_max": indicator.cmast,
+            "main_temperature": indicator.main_temperature,
+        }
+
+
+class AldesSettingsSensor(BaseAldesSensorEntity):
+    """Sensor for device settings."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:cog"
+    _attr_entity_registry_visible_default = False
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID to use for this entity."""
+        return f"{self.device_identifier}_settings"
+
+    def _friendly_name_internal(self) -> str | None:
+        """Return the friendly name."""
+        return "Paramètres Appareil"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        device = self._get_device()
+        if device is None:
+            return "unknown"
+        settings = device.indicator.settings
+        return "configured" if settings else "unconfigured"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes with settings."""
+        device = self._get_device()
+        if device is None:
+            return {}
+
+        settings = device.indicator.settings
+        return {
+            "household_composition": str(settings.people) if settings.people else None,
+            "antilegio_cycle": settings.antilegio,
+            "kwh_creuse": settings.kwh_creuse,
+            "kwh_pleine": settings.kwh_pleine,
+        }
