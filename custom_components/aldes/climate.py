@@ -370,6 +370,18 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
         )
         self._attr_target_temperature = thermostat.temperature_set - temperature_offset
 
+        # --- APPLY OPTIMISTIC STATE ---
+        if self._optimistic_end_time and dt_util.now() < self._optimistic_end_time:
+            if self._optimistic_target_temp is not None:
+                self._attr_target_temperature = self._optimistic_target_temp
+            if self._optimistic_hvac_mode is not None:
+                self._attr_hvac_mode = self._optimistic_hvac_mode
+        else:
+            # Reset optimistic state if expired
+            self._optimistic_target_temp = None
+            self._optimistic_hvac_mode = None
+            self._optimistic_end_time = None
+
         # Determine action AFTER target_temperature is set
         self._attr_hvac_action = self._determine_hvac_action(self._effective_air_mode)
 
@@ -591,3 +603,56 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
     async def async_turn_off(self) -> None:
         """Turn off the climate device."""
         await self.async_set_hvac_mode(HVACMode.OFF)
+
+    async def _verify_state_change_after_delay(
+        self,
+        get_current_fn: Any,
+        expected_value: Any,
+        retry_fn: Any,
+        threshold: float,
+        command_name: str,
+        max_retries: int,
+    ) -> None:
+        """Verify if a state change was applied and retry if not."""
+        retries = 0
+        while retries < max_retries:
+            # Wait for the next coordinator update or a fixed delay
+            # Usually 60s is enough for the cloud to reflect the change
+            await asyncio.sleep(60)
+
+            current_value = get_current_fn()
+            
+            # For temperature, check within threshold. For modes, check equality.
+            is_applied = (
+                abs(current_value - expected_value) <= threshold
+                if isinstance(expected_value, (int, float))
+                else current_value == expected_value
+            )
+
+            if is_applied:
+                _LOGGER.debug(
+                    "Command '%s' verified as applied for %s",
+                    command_name,
+                    self.name,
+                )
+                return
+
+            retries += 1
+            _LOGGER.warning(
+                "Command '%s' not applied for %s. Retrying (%d/%d)...",
+                command_name,
+                self.name,
+                retries,
+                max_retries,
+            )
+            try:
+                await retry_fn()
+            except Exception:
+                _LOGGER.exception("Error during retry of '%s'", command_name)
+
+        _LOGGER.error(
+            "Command '%s' failed after %d retries for %s",
+            command_name,
+            max_retries,
+            self.name,
+        )

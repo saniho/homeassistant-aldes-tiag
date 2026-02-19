@@ -350,6 +350,11 @@ class AldesWaterModeEntity(AldesEntity, SelectEntity):
         if device is None or device.indicator is None:
             return "unavailable"
         mode = device.indicator.current_water_mode
+        
+        # Optimistic state handling
+        if self._attr_current_option is not None:
+             return self._attr_display_names.get(self._attr_current_option, str(self._attr_current_option))
+
         return self._attr_display_names.get(mode, mode)
 
     @property
