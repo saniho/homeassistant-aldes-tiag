@@ -8,12 +8,14 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN, FRIENDLY_NAMES, MANUFACTURER
-from .entity import AldesEntity
+from .entity import AldesEntity, DeviceContext
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .coordinator import AldesDataUpdateCoordinator
 
 
 async def async_setup_entry(
@@ -22,7 +24,17 @@ async def async_setup_entry(
     """Add Aldes buttons from a config_entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    buttons: list[AldesResetFilterButton] = [AldesResetFilterButton(coordinator, entry)]
+    buttons: list[AldesResetFilterButton] = []
+
+    for device_key, device in (coordinator.data or {}).items():
+        if not device:
+            continue
+        context = DeviceContext(
+            device_key=device_key,
+            device=device,
+            config_entry=entry,
+        )
+        buttons.append(AldesResetFilterButton(coordinator, context))
 
     async_add_entities(buttons)
 
@@ -36,16 +48,16 @@ class AldesResetFilterButton(AldesEntity, ButtonEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.serial_number)},
+            identifiers={(DOMAIN, self.device_identifier)},
             manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {self.serial_number}",
+            name=f"{FRIENDLY_NAMES[self.reference]} {self.device_identifier}",
             model=FRIENDLY_NAMES[self.reference],
         )
 
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
-        return f"{self.serial_number}_reset_filter"
+        return f"{self.device_identifier}_reset_filter"
 
     def _friendly_name_internal(self) -> str | None:
         """Return the friendly name."""
@@ -56,3 +68,11 @@ class AldesResetFilterButton(AldesEntity, ButtonEntity):
         await self.coordinator.api.reset_filter(self.modem)
         # Request refresh after reset
         await self.coordinator.async_request_refresh()
+
+    def __init__(
+        self,
+        coordinator: AldesDataUpdateCoordinator,
+        context: DeviceContext,
+    ) -> None:
+        """Initialize."""
+        super().__init__(coordinator, context)
