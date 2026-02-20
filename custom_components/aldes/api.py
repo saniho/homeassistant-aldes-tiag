@@ -337,15 +337,19 @@ class AldesApi:
             async with await self._request_with_auth_interceptor(
                 request_func, url, **kwargs
             ) as response:
-                duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
-                response.raise_for_status()
-                data = await response.json()
-                self._cache[cache_key] = data
-                self._cache_timestamp[cache_key] = datetime.now(UTC)
-                self.health_state = ApiHealthState.ONLINE
-                self._log_api_performance(url, method, response.status, duration_ms)
-                _LOGGER.debug("Stored data in emergency cache for %s", cache_key)
-                return data
+                if response.status == HTTP_OK:
+                    dduration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
+                    response.raise_for_status()
+                    data = await response.json()
+                    self._cache[cache_key] = data
+                    self._cache_timestamp[cache_key] = datetime.now(UTC)
+                    self.health_state = ApiHealthState.ONLINE
+                    self._log_api_performance(url, method, response.status, duration_ms)
+                    _LOGGER.debug("Stored data in emergency cache for %s", cache_key)
+                    return data
+                msg = f"API request failed with status {response.status}"
+                _LOGGER.error(msg)
+                _raise_client_error(msg)
         except Exception as err:
             if isinstance(err, ClientError | TimeoutError):
                 _LOGGER.exception("API request error")

@@ -461,7 +461,18 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
             )
             return {}
         else:
-            return result
+            if not planning:
+                return {}
+            commands = [
+                item if isinstance(item, str) else item.get("command")
+                for item in planning
+                if isinstance(item, str | dict)
+            ]
+            commands = [c for c in commands if c]
+            return {
+                "planning_data": commands,
+                "item_count": len(commands),
+            }
 
 
 def _parse_utc_to_local(timestamp_str: str | None) -> datetime | None:
@@ -535,7 +546,7 @@ class BaseStatisticsSensor(BaseAldesSensorEntity):
     """Base class for statistics sensors."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _statistics_data: dict[str, Any] | None = None
+    _statistics_data: list[Any] | dict[str, Any] | None = None
     _fetch_task: Any | None = None
     _suggested_object_id_suffix: str
 
@@ -607,15 +618,19 @@ class BaseStatisticsSensor(BaseAldesSensorEntity):
 
     def _get_latest_stat(self) -> dict[str, Any] | None:
         """Get the most recent statistic entry."""
-        if not self._statistics_data or "statArray" not in self._statistics_data:
+        if not self._statistics_data:
             return None
 
-        stat_array = self._statistics_data.get("statArray", [])
-        if not stat_array:
-            return None
+        # Handle list format (direct array of stats)
+        if isinstance(self._statistics_data, list):
+            return self._statistics_data[-1] if self._statistics_data else None
 
-        # Return the last entry (most recent)
-        return stat_array[-1]
+        # Handle dict format with statArray key
+        if isinstance(self._statistics_data, dict):
+            stat_array = self._statistics_data.get("statArray", [])
+            return stat_array[-1] if stat_array else None
+
+        return None
 
 
 class AldesECSConsumptionSensor(BaseStatisticsSensor):
