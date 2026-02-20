@@ -29,12 +29,13 @@ from custom_components.aldes.const import (
     PROGRAM_OFF,
     SLOT_MIN_LENGTH,
     TEMPERATURE_VERIFY_THRESHOLD,
+    AirMode,
 )
 from custom_components.aldes.entity import (
     AldesEntity,
     DeviceContext,
+    ThermostatApiEntity,
 )
-from custom_components.aldes.models import AirMode, CommandUid, ThermostatApiEntity
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -43,11 +44,6 @@ if TYPE_CHECKING:
     from custom_components.aldes.coordinator import AldesDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-# Duration to hold optimistic state (seconds)
-OPTIMISTIC_HOLD_DURATION = 60
-# Maximum number of retries for silent failures
-MAX_RETRIES = 3
 
 
 async def async_setup_entry(

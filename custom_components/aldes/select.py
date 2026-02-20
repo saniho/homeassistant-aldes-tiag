@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.const import (
@@ -274,11 +274,15 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             # Clear pending change
             self._pending_mode_change = None
 
-        except asyncio.CancelledError:
-            _LOGGER.debug("Air mode verification cancelled")
-        except Exception as e:
-            _LOGGER.error("Error verifying air mode change: %s", e)
-            self._pending_mode_change = None
+        # Use generic verification method
+        await self._verify_state_change_after_delay(
+            get_current_fn=get_current_mode,
+            expected_value=expected_mode,
+            retry_fn=retry_mode,
+            threshold=0,
+            command_name="air mode",
+            max_retries=3,
+        )
 
 
 class AldesWaterModeEntity(AldesEntity, SelectEntity):

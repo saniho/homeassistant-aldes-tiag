@@ -5,8 +5,10 @@ import base64
 import contextlib
 import json
 import logging
+from contextlib import suppress
 from datetime import UTC, datetime
-from typing import Any
+from enum import IntEnum
+from typing import Any, NoReturn
 
 import aiohttp
 import backoff
@@ -18,8 +20,19 @@ _LOGGER = logging.getLogger(__name__)
 
 HTTP_OK = 200
 HTTP_UNAUTHORIZED = 401
+
+
+def _raise_client_error(message: str) -> NoReturn:
+    """Raise a client error with a message."""
+    raise ClientError(message)
+
+
 REQUEST_DELAY = 5  # Delay between queued requests in seconds
 CACHE_TTL = 300  # Cache TTL in seconds (5 minutes)
+TEMPERATURE_CHANGE_MAX_RETRIES = 3  # Max retries for temperature changes in worker
+STATE_CHANGE_BACKOFF_MAX_TRIES = (
+    4  # Max tries with exponential backoff for state changes
+)
 
 
 def _backoff_handler(details: dict[str, Any]) -> None:
@@ -126,6 +139,9 @@ class AldesApi:
             "Registered pending verification %s",
             verification_id,
         )
+        self._temperature_task: asyncio.Task[Any] | None = None
+        # Track pending command verifications for retry if not applied
+        self._pending_verifications: dict[str, Any] = {}
 
     def unregister_pending_verification(self, verification_id: str) -> None:
         """Mark a verification as complete (command was applied correctly)."""
@@ -236,6 +252,67 @@ class AldesApi:
             _LOGGER.exception(error_msg)
             raise AuthenticationError(error_msg) from err
 
+    async def async_close(self) -> None:
+        """Cleanup background tasks."""
+        if self._temperature_task and not self._temperature_task.done():
+            self._temperature_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._temperature_task
+
+    def register_pending_verification(
+        self, verification_id: str, metadata: dict[str, Any]
+    ) -> None:
+        """
+        Register a pending command verification to check later if applied.
+
+        Args:
+            verification_id: Unique ID for this verification (e.g., "modem_temp_123")
+            metadata: Dict with verification details (command, modem, retry_fn, etc)
+
+        """
+        self._pending_verifications[verification_id] = {
+            "metadata": metadata,
+            "registered_at": datetime.now(UTC),
+        }
+        _LOGGER.debug(
+            "Registered pending verification %s",
+            verification_id,
+        )
+
+    def unregister_pending_verification(self, verification_id: str) -> None:
+        """Mark a verification as complete (command was applied correctly)."""
+        if verification_id in self._pending_verifications:
+            del self._pending_verifications[verification_id]
+            _LOGGER.debug(
+                "Cleared pending verification %s",
+                verification_id,
+            )
+
+    def get_pending_verifications(
+        self, timeout_seconds: int = 60
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Get all pending verifications that should be checked now.
+
+        Returns verifications that have been pending for at least timeout_seconds.
+        This is used by the coordinator to periodically check if commands were
+        actually applied, and retry if not.
+
+        Args:
+            timeout_seconds: Only return verifications older than this
+
+        Returns:
+            Dict of {verification_id: metadata} for verifications to check
+
+        """
+        now = datetime.now(UTC)
+        pending = {}
+        for vid, data in list(self._pending_verifications.items()):
+            age = (now - data["registered_at"]).total_seconds()
+            if age >= timeout_seconds:
+                pending[vid] = data["metadata"]
+        return pending
+
     @backoff.on_exception(
         backoff.expo,
         (ClientError, TimeoutError, ClientResponseError),
@@ -295,8 +372,15 @@ class AldesApi:
                 raise ClientError(msg) from err
             raise
 
+    @backoff.on_exception(
+        backoff.expo,
+        (ClientError, TimeoutError),
+        max_tries=STATE_CHANGE_BACKOFF_MAX_TRIES,
+        max_time=30,
+        logger=None,  # Disable backoff logger to avoid duplicate logs
+    )
     async def change_mode(self, modem: str, mode: str, uid: CommandUid) -> Any:
-        """Change mode (air or hot water)."""
+        """Change mode (air or hot water) with automatic retry on failure."""
         mode_type = "air" if uid == CommandUid.AIR_MODE else "hot water"
         _LOGGER.info("Changing %s mode to: %s", mode_type, mode)
         return await self._send_command(modem, "changeMode", uid, mode)
@@ -406,6 +490,13 @@ class AldesApi:
         else:
             _LOGGER.error("Failed to queue temperature change: Queue is None")
 
+    @backoff.on_exception(
+        backoff.expo,
+        (ClientError, TimeoutError),
+        max_tries=STATE_CHANGE_BACKOFF_MAX_TRIES,
+        max_time=30,
+        logger=None,  # Disable backoff logger to avoid duplicate logs
+    )
     async def change_temperature(
         self,
         modem: str,
@@ -413,7 +504,7 @@ class AldesApi:
         thermostat_name: str,
         target_temperature: Any,
     ) -> Any:
-        """Change temperature of thermostat."""
+        """Change temperature of thermostat with automatic retry on failure."""
         _LOGGER.info(
             "Changing temperature for thermostat %s (%s) to %s°C",
             thermostat_id,
@@ -564,8 +655,15 @@ class AldesApi:
             _LOGGER.debug("Reset filter response: %s", result)
             return result
 
+    @backoff.on_exception(
+        backoff.expo,
+        (ClientError, TimeoutError),
+        max_tries=STATE_CHANGE_BACKOFF_MAX_TRIES,
+        max_time=30,
+        logger=None,  # Disable backoff logger to avoid duplicate logs
+    )
     async def _send_command(self, modem: str, method: str, uid: int, param: str) -> Any:
-        """Send JSON-RPC command to device."""
+        """Send JSON-RPC command to device with automatic retry on failure."""
         json_payload = {
             "jsonrpc": "2.0",
             "method": method,
@@ -625,6 +723,8 @@ class AldesApi:
         except Exception:
             _LOGGER.exception("Error while checking token validity")
             return False
+        else:
+            return True
 
     def get_diagnostic_info(self) -> dict[str, Any]:
         """Get diagnostic information about API client state."""
