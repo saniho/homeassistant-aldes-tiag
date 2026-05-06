@@ -1132,6 +1132,7 @@ class AldesApiHealthSensorEntity(AldesEntity, SensorEntity):
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:api"
+    _attr_entity_registry_visible_default = True
 
     def __init__(
         self,
@@ -1162,6 +1163,7 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:tray-full"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_registry_visible_default = True
 
     def __init__(
         self,
