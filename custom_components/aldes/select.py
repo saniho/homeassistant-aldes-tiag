@@ -274,6 +274,11 @@ class AldesAirModeEntity(AldesEntity, SelectEntity):
             # Clear pending change
             self._pending_mode_change = None
 
+        except Exception:
+            _LOGGER.exception("Error verifying air mode change")
+        finally:
+            self._pending_mode_change = None
+
         # Use generic verification method
         await self._verify_state_change_after_delay(
             get_current_fn=get_current_mode,
