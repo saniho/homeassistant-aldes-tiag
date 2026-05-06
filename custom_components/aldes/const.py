@@ -64,6 +64,7 @@ WATER_LEVEL_THRESHOLDS = {
 # API Configuration
 REQUEST_DELAY = 5  # Delay between queued requests in seconds
 CACHE_TTL = 300  # Cache TTL in seconds (5 minutes)
+OPTIMISTIC_HOLD_DURATION = 60  # Duration for optimistic state (seconds)
 STATE_CHANGE_BACKOFF_MAX_TRIES = (
     4  # Max tries with exponential backoff for state changes
 )

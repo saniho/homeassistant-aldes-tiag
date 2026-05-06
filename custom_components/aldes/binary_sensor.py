@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from custom_components.aldes.coordinator import AldesDataUpdateCoordinator
+    from .coordinator import AldesDataUpdateCoordinator
 
 
 async def async_setup_entry(

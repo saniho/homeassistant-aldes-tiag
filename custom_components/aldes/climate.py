@@ -19,11 +19,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
-from custom_components.aldes.const import (
+from .const import (
     DOMAIN,
     ECO_MODE_TEMPERATURE_OFFSET,
     HOUR_TO_CHAR_THRESHOLD,
     MANUFACTURER,
+    OPTIMISTIC_HOLD_DURATION,
     PROGRAM_COMFORT,
     PROGRAM_ECO,
     PROGRAM_OFF,
@@ -31,7 +32,7 @@ from custom_components.aldes.const import (
     TEMPERATURE_VERIFY_THRESHOLD,
     AirMode,
 )
-from custom_components.aldes.entity import (
+from .entity import (
     AldesEntity,
     DeviceContext,
     ThermostatApiEntity,
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from custom_components.aldes.coordinator import AldesDataUpdateCoordinator
+    from .coordinator import AldesDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 

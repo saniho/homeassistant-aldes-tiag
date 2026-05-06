@@ -13,11 +13,11 @@ import aiohttp
 import backoff
 from aiohttp import ClientError, ClientResponseError, ClientTimeout
 
-from custom_components.aldes.const import (
+from .const import (
     REQUEST_DELAY,
     STATE_CHANGE_BACKOFF_MAX_TRIES,
 )
-from custom_components.aldes.models import ApiHealthState, CommandUid, DataApiEntity
+from .models import ApiHealthState, CommandUid, DataApiEntity
 
 _LOGGER = logging.getLogger(__name__)
 
