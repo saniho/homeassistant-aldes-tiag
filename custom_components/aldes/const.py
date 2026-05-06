@@ -1,5 +1,7 @@
 """Constants for aldes."""
 
+from enum import StrEnum
+
 from homeassistant.const import Platform
 
 NAME = "Aldes"
