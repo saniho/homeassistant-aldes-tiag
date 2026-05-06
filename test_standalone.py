@@ -88,9 +88,9 @@ class AldesTestMenu:
 
     async def cleanup(self) -> None:
         """Cleanup resources before exiting."""
-        # Stop the temperature worker
+        # Stop the command worker
         if self.api:
-            await self.api.stop_temperature_worker()
+            await self.api.stop_worker()
         # Close session
         await self.close_session()
 
@@ -111,11 +111,13 @@ class AldesTestMenu:
             assert self.session is not None
             self.api = AldesApi(self.username, self.password, self.session)
             await self.api.authenticate()
-            
-            # Start the temperature worker immediately after authentication
-            await self.api._ensure_temperature_worker_started()
-            
+
+            # The worker starts automatically when a command is queued, 
+            # but we can ensure it's started if needed.
+            await self.api._ensure_worker_started()
+
             print("\n✓ Authentification réussie!")
+
             return True
         except Exception as e:
             print(f"\n✗ Erreur d'authentification: {e}")
@@ -370,19 +372,19 @@ class AldesTestMenu:
             return
 
         # Check if worker task exists
-        has_worker = self.api._temperature_task is not None
+        has_worker = self.api._worker_task is not None
         print(f"Worker créé: {'✓ Oui' if has_worker else '✗ Non'}")
 
         if has_worker:
-            is_done = self.api._temperature_task.done()
+            is_done = self.api._worker_task.done()
             print(f"Worker actif: {'✓ Oui (en cours)' if not is_done else '✗ Non (arrêté)'}")
 
         # Check queue
-        has_queue = self.api.queue_target_temperature is not None
+        has_queue = self.api._command_queue is not None
         print(f"Queue créée: {'✓ Oui' if has_queue else '✗ Non'}")
 
-        if has_queue:
-            queue_size = self.api.queue_target_temperature.qsize()
+        if has_queue and self.api._command_queue:
+            queue_size = self.api._command_queue.qsize()
             print(f"Éléments en queue: {queue_size}")
 
             if queue_size > 0:

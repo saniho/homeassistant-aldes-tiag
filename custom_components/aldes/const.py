@@ -4,7 +4,7 @@ from homeassistant.const import Platform
 
 NAME = "Aldes"
 DOMAIN = "aldes"
-VERSION = "0.0.1"
+VERSION = "3.5.0-beta.1"
 
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
@@ -51,6 +51,13 @@ WATER_LEVEL_THRESHOLDS = {
     "medium": 50,
     "high": 75,
 }
+
+# API Configuration
+REQUEST_DELAY = 5  # Delay between queued requests in seconds
+CACHE_TTL = 300  # Cache TTL in seconds (5 minutes)
+STATE_CHANGE_BACKOFF_MAX_TRIES = (
+    4  # Max tries with exponential backoff for state changes
+)
 
 
 class AirMode(StrEnum):

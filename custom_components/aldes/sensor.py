@@ -91,6 +91,14 @@ async def async_setup_entry(
             )
         )
 
+        # Add diagnostic sensors
+        sensors.extend(
+            [
+                AldesApiHealthSensorEntity(coordinator, context),
+                AldesPendingCommandsSensorEntity(coordinator, context),
+            ]
+        )
+
         # Add AquaAir specific sensors
         is_aqua_air = device.reference == "TONE_AQUA_AIR"
         if is_aqua_air:
@@ -449,12 +457,12 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
                     if isinstance(item, str | dict)
                 ]
                 commands = [c for c in commands if c]
-                result = {
+                {
                     "planning_data": commands,
                     "item_count": len(commands),
                 }
             else:
-                result = {}
+                pass
         except Exception as e:
             _LOGGER.error(
                 "Error getting planning attributes %s: %s", self.planning_type, e
@@ -1116,4 +1124,71 @@ class AldesSettingsSensor(BaseAldesSensorEntity):
             "antilegio_cycle": settings.antilegio,
             "kwh_creuse": settings.kwh_creuse,
             "kwh_pleine": settings.kwh_pleine,
+        }
+
+
+class AldesApiHealthSensorEntity(AldesEntity, SensorEntity):
+    """Diagnostic sensor for Aldes API health state."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:api"
+
+    def __init__(
+        self,
+        coordinator: AldesDataUpdateCoordinator,
+        context: DeviceContext,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, context)
+        self._attr_name = f"{self.device_name} API Health"
+        self._attr_unique_id = f"{self.device_identifier}_api_health"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the API."""
+        return self.coordinator.api.health_state.value if self.coordinator.api else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        return {
+            "last_check": dt_util.now().isoformat(),
+        }
+
+
+class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
+    """Diagnostic sensor for Aldes pending commands queue size."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:tray-full"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: AldesDataUpdateCoordinator,
+        context: DeviceContext,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, context)
+        self._attr_name = f"{self.device_name} Pending Commands"
+        self._attr_unique_id = f"{self.device_identifier}_pending_commands"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of pending commands in the queue."""
+        if not self.coordinator.api or self.coordinator.api._command_queue is None:
+            return 0
+        return self.coordinator.api._command_queue.qsize()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        api = self.coordinator.api
+        worker_active = False
+        if api and api._worker_task:
+            worker_active = not api._worker_task.done()
+
+        return {
+            "worker_active": worker_active,
+            "delay_between_requests": 5,  # From const.REQUEST_DELAY
         }

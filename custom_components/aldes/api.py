@@ -2,18 +2,21 @@
 
 import asyncio
 import base64
-import contextlib
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime
-from enum import IntEnum
 from typing import Any, NoReturn
 
 import aiohttp
 import backoff
 from aiohttp import ClientError, ClientResponseError, ClientTimeout
 
+from custom_components.aldes.const import (
+    REQUEST_DELAY,
+    STATE_CHANGE_BACKOFF_MAX_TRIES,
+)
 from custom_components.aldes.models import ApiHealthState, CommandUid, DataApiEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,14 +28,6 @@ HTTP_UNAUTHORIZED = 401
 def _raise_client_error(message: str) -> NoReturn:
     """Raise a client error with a message."""
     raise ClientError(message)
-
-
-REQUEST_DELAY = 5  # Delay between queued requests in seconds
-CACHE_TTL = 300  # Cache TTL in seconds (5 minutes)
-TEMPERATURE_CHANGE_MAX_RETRIES = 3  # Max retries for temperature changes in worker
-STATE_CHANGE_BACKOFF_MAX_TRIES = (
-    4  # Max tries with exponential backoff for state changes
-)
 
 
 def _backoff_handler(details: dict[str, Any]) -> None:
@@ -84,98 +79,92 @@ class AldesApi:
         self._cache: dict[str, Any] = {}
         self._cache_timestamp: dict[str, datetime] = {}
         self.health_state: ApiHealthState = ApiHealthState.ONLINE
-        self.queue_target_temperature: (
-            asyncio.Queue[tuple[str, int, str, Any]] | None
+        self._command_queue: (
+            asyncio.Queue[tuple[Callable[..., Awaitable[Any]], tuple, dict, str]] | None
         ) = None
-        self._temperature_task: asyncio.Task[None] | None = None
+        self._worker_task: asyncio.Task[None] | None = None
         # Track pending command verifications for retry if not applied
         self._pending_verifications: dict[str, Any] = {}
 
-    async def _ensure_temperature_worker_started(self) -> None:
-        """Ensure the temperature worker task is started."""
-        if self._temperature_task is None or self._temperature_task.done():
-            _LOGGER.debug("Starting temperature worker task")
-            if self.queue_target_temperature is None:
-                self.queue_target_temperature = asyncio.Queue()
-            self._temperature_task = asyncio.create_task(self._temperature_worker())
+    async def _ensure_worker_started(self) -> None:
+        """Ensure the command worker task is started."""
+        if self._worker_task is None or self._worker_task.done():
+            _LOGGER.debug("Starting command worker task")
+            if self._command_queue is None:
+                self._command_queue = asyncio.Queue()
+            self._worker_task = asyncio.create_task(self._command_worker())
         else:
-            _LOGGER.debug("Temperature worker task already running")
+            _LOGGER.debug("Command worker task already running")
 
-    async def stop_temperature_worker(self) -> None:
-        """Stop the temperature worker and wait for queue to empty."""
-        if self._temperature_task and not self._temperature_task.done():
+    async def stop_worker(self) -> None:
+        """Stop the command worker and wait for queue to empty."""
+        if self._worker_task and not self._worker_task.done():
             # Wait for queue to be processed
-            if self.queue_target_temperature:
+            if self._command_queue:
                 try:
-                    await asyncio.wait_for(
-                        self.queue_target_temperature.join(), timeout=10
-                    )
-                except asyncio.TimeoutError:
-                    _LOGGER.warning("Temperature queue did not empty in time")
+                    await asyncio.wait_for(self._command_queue.join(), timeout=10)
+                except TimeoutError:
+                    _LOGGER.warning("Command queue did not empty in time")
 
             # Cancel the worker task
-            self._temperature_task.cancel()
+            self._worker_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._worker_task
+
+    async def _command_worker(self) -> None:
+        """Process command requests from queue with delay between each."""
+        _LOGGER.info("Command worker started")
+        while True:
             try:
-                await self._temperature_task
+                if self._command_queue is None:
+                    _LOGGER.debug("Queue is None, waiting...")
+                    await asyncio.sleep(1)
+                    continue
+
+                _LOGGER.debug("Worker waiting for next item in queue...")
+                func, args, kwargs, description = await self._command_queue.get()
+
+                _LOGGER.debug("Worker processing command: %s", description)
+
+                try:
+                    await func(*args, **kwargs)
+                except Exception:
+                    _LOGGER.exception(
+                        "Error executing command '%s'. Worker continuing.",
+                        description,
+                    )
+
+                _LOGGER.debug("Worker sleeping for %s seconds", REQUEST_DELAY)
+                await asyncio.sleep(REQUEST_DELAY)
+
+                # Mark task as done immediately after processing
+                self._command_queue.task_done()
+
             except asyncio.CancelledError:
-                pass
+                _LOGGER.info("Command worker cancelled")
+                break
+            except Exception:
+                _LOGGER.exception("Unexpected error in command worker")
+                # In case of error, we still need to mark task as done if we got an item
+                if self._command_queue is not None:
+                    with suppress(ValueError):
+                        self._command_queue.task_done()
+                await asyncio.sleep(REQUEST_DELAY)
 
-    def register_pending_verification(
-        self, verification_id: str, metadata: dict[str, Any]
+    async def _queue_command(
+        self,
+        func: Callable[..., Awaitable[Any]],
+        args: tuple = (),
+        kwargs: dict | None = None,
+        description: str = "unnamed command",
     ) -> None:
-        """
-        Register a pending command verification to check later if applied.
-
-        Args:
-            verification_id: Unique ID for this verification (e.g., "modem_temp_123")
-            metadata: Dict with verification details (command, modem, retry_fn, etc)
-
-        """
-        self._pending_verifications[verification_id] = {
-            "metadata": metadata,
-            "registered_at": datetime.now(UTC),
-        }
-        _LOGGER.debug(
-            "Registered pending verification %s",
-            verification_id,
-        )
-        self._temperature_task: asyncio.Task[Any] | None = None
-        # Track pending command verifications for retry if not applied
-        self._pending_verifications: dict[str, Any] = {}
-
-    def unregister_pending_verification(self, verification_id: str) -> None:
-        """Mark a verification as complete (command was applied correctly)."""
-        if verification_id in self._pending_verifications:
-            del self._pending_verifications[verification_id]
-            _LOGGER.debug(
-                "Cleared pending verification %s",
-                verification_id,
-            )
-
-    def get_pending_verifications(
-        self, timeout_seconds: int = 60
-    ) -> dict[str, dict[str, Any]]:
-        """
-        Get all pending verifications that should be checked now.
-
-        Returns verifications that have been pending for at least timeout_seconds.
-        This is used by the coordinator to periodically check if commands were
-        actually applied, and retry if not.
-
-        Args:
-            timeout_seconds: Only return verifications older than this
-
-        Returns:
-            Dict of {verification_id: metadata} for verifications to check
-
-        """
-        now = datetime.now(UTC)
-        pending = {}
-        for vid, data in list(self._pending_verifications.items()):
-            age = (now - data["registered_at"]).total_seconds()
-            if age >= timeout_seconds:
-                pending[vid] = data["metadata"]
-        return pending
+        """Add a command to the queue."""
+        await self._ensure_worker_started()
+        if self._command_queue:
+            _LOGGER.debug("Queueing command: %s", description)
+            await self._command_queue.put((func, args, kwargs or {}, description))
+        else:
+            _LOGGER.error("Failed to queue command: Queue is None")
 
     def _log_request_details(
         self, method: str, url: str, headers: dict, data: Any = None
@@ -254,10 +243,7 @@ class AldesApi:
 
     async def async_close(self) -> None:
         """Cleanup background tasks."""
-        if self._temperature_task and not self._temperature_task.done():
-            self._temperature_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._temperature_task
+        await self.stop_worker()
 
     def register_pending_verification(
         self, verification_id: str, metadata: dict[str, Any]
@@ -338,7 +324,9 @@ class AldesApi:
                 request_func, url, **kwargs
             ) as response:
                 if response.status == HTTP_OK:
-                    dduration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
+                    duration_ms = (
+                        datetime.now(UTC) - start_time
+                    ).total_seconds() * 1000
                     response.raise_for_status()
                     data = await response.json()
                     self._cache[cache_key] = data
@@ -383,11 +371,19 @@ class AldesApi:
         max_time=30,
         logger=None,  # Disable backoff logger to avoid duplicate logs
     )
-    async def change_mode(self, modem: str, mode: str, uid: CommandUid) -> Any:
-        """Change mode (air or hot water) with automatic retry on failure."""
-        mode_type = "air" if uid == CommandUid.AIR_MODE else "hot water"
-        _LOGGER.info("Changing %s mode to: %s", mode_type, mode)
+    async def _change_mode_direct(self, modem: str, mode: str, uid: CommandUid) -> Any:
+        """Perform actual mode change with backoff."""
         return await self._send_command(modem, "changeMode", uid, mode)
+
+    async def change_mode(self, modem: str, mode: str, uid: CommandUid) -> None:
+        """Queue a mode change (air or hot water)."""
+        mode_type = "air" if uid == CommandUid.AIR_MODE else "hot water"
+        _LOGGER.info("Queueing %s mode change to: %s", mode_type, mode)
+        await self._queue_command(
+            self._change_mode_direct,
+            args=(modem, mode, uid),
+            description=f"change {mode_type} mode to {mode}",
+        )
 
     async def fetch_data(self) -> dict[str, DataApiEntity]:
         """Fetch data."""
@@ -419,60 +415,6 @@ class AldesApi:
             _LOGGER.warning("No data received from Aldes API")
             return {}
 
-    async def _temperature_worker(self) -> None:
-        """Process temperature change requests from queue with delay between each."""
-        _LOGGER.info("Temperature worker started")
-        while True:
-            try:
-                if self.queue_target_temperature is None:
-                    _LOGGER.debug("Queue is None, waiting...")
-                    await asyncio.sleep(1)
-                    continue
-
-                _LOGGER.debug("Worker waiting for next item in queue...")
-                (
-                    modem,
-                    thermostat_id,
-                    thermostat_name,
-                    temperature,
-                ) = await self.queue_target_temperature.get()
-
-                _LOGGER.debug(
-                    "Worker processing item: %s, %s, %s, %s",
-                    modem,
-                    thermostat_id,
-                    thermostat_name,
-                    temperature,
-                )
-
-                if modem and thermostat_id and thermostat_name and temperature:
-                    try:
-                        await self.change_temperature(
-                            modem, thermostat_id, thermostat_name, temperature
-                        )
-                    except Exception:
-                        _LOGGER.exception(
-                            "Error changing temperature for %s. Worker continuing.",
-                            thermostat_name,
-                        )
-
-                    _LOGGER.debug("Worker sleeping for %s seconds", REQUEST_DELAY)
-                    await asyncio.sleep(REQUEST_DELAY)
-                
-                # Mark task as done immediately after processing
-                self.queue_target_temperature.task_done()
-                
-            except asyncio.CancelledError:
-                _LOGGER.info("Temperature worker cancelled")
-                break
-            except Exception:
-                _LOGGER.exception("Unexpected error in temperature worker")
-                # In case of error, we still need to mark task as done if we got an item
-                if self.queue_target_temperature is not None:
-                    with contextlib.suppress(ValueError):
-                        self.queue_target_temperature.task_done()
-                await asyncio.sleep(REQUEST_DELAY)
-
     async def set_target_temperature(
         self,
         modem: str,
@@ -480,19 +422,17 @@ class AldesApi:
         thermostat_name: str,
         target_temperature: Any,
     ) -> None:
-        """Set target temperature."""
-        await self._ensure_temperature_worker_started()
-        if self.queue_target_temperature:
-            _LOGGER.debug(
-                "Queueing temperature change for %s: %s",
-                thermostat_name,
-                target_temperature,
-            )
-            await self.queue_target_temperature.put(
-                (modem, thermostat_id, thermostat_name, target_temperature)
-            )
-        else:
-            _LOGGER.error("Failed to queue temperature change: Queue is None")
+        """Queue a target temperature change."""
+        _LOGGER.info(
+            "Queueing temperature change for %s: %s°C",
+            thermostat_name,
+            target_temperature,
+        )
+        await self._queue_command(
+            self._change_temperature_direct,
+            args=(modem, thermostat_id, thermostat_name, target_temperature),
+            description=f"set temperature for {thermostat_name} to {target_temperature}",
+        )
 
     @backoff.on_exception(
         backoff.expo,
@@ -501,13 +441,38 @@ class AldesApi:
         max_time=30,
         logger=None,  # Disable backoff logger to avoid duplicate logs
     )
-    async def change_temperature(
+    async def _change_temperature_direct(
         self,
         modem: str,
         thermostat_id: int,
         thermostat_name: str,
         target_temperature: Any,
     ) -> Any:
+        """Actual temperature change with backoff."""
+        _LOGGER.info(
+            "Changing temperature for thermostat %s (%s) to %s°C",
+            thermostat_id,
+            thermostat_name,
+            target_temperature,
+        )
+        try:
+            result = await self._api_request(
+                "patch",
+                f"{self._API_URL_PRODUCTS}/{modem}/updateThermostats",
+                json=[
+                    {
+                        "ThermostatId": thermostat_id,
+                        "Name": thermostat_name,
+                        "TemperatureSet": int(target_temperature),
+                    }
+                ],
+            )
+        except (ClientError, TimeoutError):
+            _LOGGER.exception("Failed to change temperature")
+            raise
+        else:
+            _LOGGER.debug("Temperature change response: %s", result)
+            return result
         """Change temperature of thermostat with automatic retry on failure."""
         _LOGGER.info(
             "Changing temperature for thermostat %s (%s) to %s°C",
@@ -574,78 +539,92 @@ class AldesApi:
         """Build Authorization header value."""
         return f"{self._TOKEN_TYPE} {self._token}"
 
-    async def change_people(self, modem: str, people: str) -> Any:
-        """Change household composition setting."""
-        _LOGGER.info("Changing household composition to: %s", people)
-        return await self._send_command(modem, "changePeople", 0, people)
+    async def change_people(self, modem: str, people: str) -> None:
+        """Queue household composition setting change."""
+        await self._queue_command(
+            self._send_command,
+            args=(modem, "changePeople", 0, people),
+            description=f"change household composition to {people}",
+        )
 
-    async def change_antilegio(self, modem: str, antilegio: str) -> Any:
-        """Change antilegio cycle setting."""
-        _LOGGER.info("Changing antilegionella cycle to: %s", antilegio)
-        return await self._send_command(modem, "antilegio", 0, antilegio)
+    async def change_antilegio(self, modem: str, antilegio: str) -> None:
+        """Queue antilegio cycle setting change."""
+        await self._queue_command(
+            self._send_command,
+            args=(modem, "antilegio", 0, antilegio),
+            description=f"change antilegionella cycle to {antilegio}",
+        )
 
     async def change_week_planning(
         self, modem: str, planning_str: str, mode: str = "A"
-    ) -> Any:
-        """Change week planning for mode A or B."""
+    ) -> None:
+        """Queue week planning change for mode A or B."""
         method = f"changePlanningMode{mode}"
-        _LOGGER.info("Changing week planning (mode %s): %s", mode, planning_str)
-        return await self._send_command(modem, method, 1, planning_str)
+        await self._queue_command(
+            self._send_command,
+            args=(modem, method, 1, planning_str),
+            description=f"change week planning (mode {mode})",
+        )
 
     async def set_holidays_mode(
         self, modem: str, start_date: str, end_date: str
-    ) -> Any:
-        """
-        Set holidays mode with start and end dates.
-        """
+    ) -> None:
+        """Queue holidays mode set."""
         param = f"W{start_date}{end_date}"
-        _LOGGER.info(
-            "Setting holidays mode for modem %s from %s to %s",
-            modem,
-            start_date,
-            end_date,
+        await self._queue_command(
+            self._send_command,
+            args=(modem, "changeMode", 1, param),
+            description=f"set holidays mode from {start_date} to {end_date}",
         )
-        return await self._send_command(modem, "changeMode", 1, param)
 
-    async def cancel_holidays_mode(self, modem: str) -> Any:
-        """
-        Cancel holidays mode by setting dates to 0001-01-01.
-        """
+    async def cancel_holidays_mode(self, modem: str) -> None:
+        """Queue holidays mode cancellation."""
         param = "W00010101000000Z00010101000000Z"
-        _LOGGER.info("Cancelling holidays mode for modem %s", modem)
-        return await self._send_command(modem, "changeMode", 1, param)
+        await self._queue_command(
+            self._send_command,
+            args=(modem, "changeMode", 1, param),
+            description="cancel holidays mode",
+        )
 
     async def set_kwh_prices(
         self, modem: str, kwh_pleine: float, kwh_creuse: float
-    ) -> Any:
-        """
-        Set electricity prices for peak and off-peak hours.
-        """
+    ) -> None:
+        """Queue electricity prices setting."""
         pleine_milliemes = int(kwh_pleine * 1000)
         creuse_milliemes = int(kwh_creuse * 1000)
         param = f"P{pleine_milliemes}C{creuse_milliemes}"
-        _LOGGER.info(
-            "Setting kWh prices for modem %s: pleine=%.3f EUR/kWh, creuse=%.3f EUR/kWh",
-            modem,
-            kwh_pleine,
-            kwh_creuse,
+        await self._queue_command(
+            self._send_command,
+            args=(modem, "prixkwh", 1, param),
+            description=f"set kWh prices (peak={kwh_pleine}, off-peak={kwh_creuse})",
         )
-        return await self._send_command(modem, "prixkwh", 1, param)
 
-    async def set_frost_protection_mode(self, modem: str, start_date: str) -> Any:
-        """
-        Set frost protection mode (hors gel) with start date and no end date.
-        """
+    async def set_frost_protection_mode(self, modem: str, start_date: str) -> None:
+        """Queue frost protection mode set."""
         param = f"W{start_date}00000000000000Z"
-        _LOGGER.info(
-            "Setting frost protection mode for modem %s from %s",
-            modem,
-            start_date,
+        await self._queue_command(
+            self._send_command,
+            args=(modem, "changeMode", 1, param),
+            description=f"set frost protection mode from {start_date}",
         )
-        return await self._send_command(modem, "changeMode", 1, param)
 
-    async def reset_filter(self, modem: str) -> Any:
-        """Reset filter wear indicator."""
+    async def reset_filter(self, modem: str) -> None:
+        """Queue filter wear indicator reset."""
+        await self._queue_command(
+            self._reset_filter_direct,
+            args=(modem,),
+            description="reset filter",
+        )
+
+    @backoff.on_exception(
+        backoff.expo,
+        (ClientError, TimeoutError),
+        max_tries=STATE_CHANGE_BACKOFF_MAX_TRIES,
+        max_time=30,
+        logger=None,  # Disable backoff logger to avoid duplicate logs
+    )
+    async def _reset_filter_direct(self, modem: str) -> Any:
+        """Actual filter reset with backoff."""
         _LOGGER.info("Resetting filter for modem %s", modem)
         try:
             result = await self._api_request(
@@ -671,15 +650,15 @@ class AldesApi:
         json_payload = {
             "jsonrpc": "2.0",
             "method": method,
-            "id": uid,
+            "id": int(uid),
             "params": [param],
         }
-        _LOGGER.info(
-            "Sending command: %s to modem %s",
+        _LOGGER.debug(
+            "Sending command %s to modem %s with payload %s",
             method,
             modem,
+            json_payload,
         )
-        _LOGGER.debug("Command payload: %s", json_payload)
         try:
             result = await self._api_request(
                 "post",
@@ -696,9 +675,7 @@ class AldesApi:
     async def get_statistics(
         self, modem: str, start_date: str, end_date: str, granularity: str = "month"
     ) -> list[Any] | dict[str, Any] | None:
-        """
-        Get device statistics.
-        """
+        """Get device statistics."""
         url = (
             f"{self._API_URL_PRODUCTS}/{modem}/statistics/"
             f"{start_date}/{end_date}/{granularity}"
