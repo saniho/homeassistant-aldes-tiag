@@ -92,6 +92,7 @@ async def async_setup_entry(
         )
 
         # Add diagnostic sensors
+        _LOGGER.debug("Registering diagnostic sensors for device: %s", device_key)
         sensors.extend(
             [
                 AldesApiHealthSensorEntity(coordinator, context),
