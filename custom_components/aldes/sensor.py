@@ -1188,9 +1188,11 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return the number of pending commands in the queue."""
-        if not self.coordinator.api or self.coordinator.api._command_queue is None:
+        if not self.coordinator or not self.coordinator.api or self.coordinator.api._command_queue is None:
             return 0
-        return self.coordinator.api._command_queue.qsize()
+        qsize = self.coordinator.api._command_queue.qsize()
+        _LOGGER.debug("Pending Commands sensor value: %d", qsize)
+        return qsize
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
