@@ -1148,7 +1148,13 @@ class AldesApiHealthSensorEntity(AldesEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         """Return the state of the API."""
-        return self.coordinator.api.health_state.value if self.coordinator.api else None
+        if (
+            self.coordinator
+            and self.coordinator.api
+            and hasattr(self.coordinator.api, "health_state")
+        ):
+            return self.coordinator.api.health_state.value
+        return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
