@@ -117,14 +117,14 @@ class AldesApi:
         while True:
             try:
                 if self._command_queue is None:
-                    _LOGGER.info("Queue is None, waiting...")
+                    _LOGGER.debug("Queue is None, waiting...")
                     await asyncio.sleep(1)
                     continue
 
-                _LOGGER.info("Worker waiting for next item in queue...")
+                _LOGGER.debug("Worker waiting for next item in queue...")
                 func, args, kwargs, description = await self._command_queue.get()
 
-                _LOGGER.info("Worker processing command: %s", description)
+                _LOGGER.debug("Worker processing command: %s", description)
 
                 try:
                     await func(*args, **kwargs)
@@ -134,7 +134,7 @@ class AldesApi:
                         description,
                     )
 
-                _LOGGER.info("Worker sleeping for %s seconds", REQUEST_DELAY)
+                _LOGGER.debug("Worker sleeping for %s seconds", REQUEST_DELAY)
                 await asyncio.sleep(REQUEST_DELAY)
 
                 # Mark task as done immediately after processing
@@ -161,7 +161,7 @@ class AldesApi:
         """Add a command to the queue."""
         await self._ensure_worker_started()
         if self._command_queue:
-            _LOGGER.info("Queueing command: %s", description)
+            _LOGGER.debug("Queueing command: %s", description)
             await self._command_queue.put((func, args, kwargs or {}, description))
         else:
             _LOGGER.error("Failed to queue command: Queue is None")
