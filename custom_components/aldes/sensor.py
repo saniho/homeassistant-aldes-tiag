@@ -1198,11 +1198,9 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return the number of pending commands in the queue."""
-        if not self.coordinator or not self.coordinator.api or self.coordinator.api._command_queue is None:
+        if not self.coordinator or not self.coordinator.api:
             return 0
-        qsize = self.coordinator.api._command_queue.qsize()
-        _LOGGER.debug("Pending Commands sensor value: %d", qsize)
-        return qsize
+        return len(self.coordinator.api._pending_commands)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -1210,13 +1208,16 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
         api = self.coordinator.api
         worker_active = False
         history = []
+        pending = []
         if api:
             if api._worker_task:
                 worker_active = not api._worker_task.done()
             history = api._command_history
+            pending = [item[3] for item in api._pending_commands]
 
         return {
             "worker_active": worker_active,
             "delay_between_requests": 5,  # From const.REQUEST_DELAY
             "history": history,
+            "pending": pending,
         }

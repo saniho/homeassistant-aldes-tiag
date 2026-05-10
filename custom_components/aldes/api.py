@@ -79,11 +79,9 @@ class AldesApi:
         self._cache: dict[str, Any] = {}
         self._cache_timestamp: dict[str, datetime] = {}
         self.health_state: ApiHealthState = ApiHealthState.ONLINE
-        self._command_queue: (
-            asyncio.Queue[tuple[Callable[..., Awaitable[Any]], tuple, dict, str]] | None
-        ) = None
         self._worker_task: asyncio.Task[None] | None = None
-        # Track processed command history
+        # Track pending commands and history
+        self._pending_commands: list[str] = []
         self._command_history: list[str] = []
         # Track pending command verifications for retry if not applied
         self._pending_verifications: dict[str, Any] = {}
@@ -92,8 +90,6 @@ class AldesApi:
         """Ensure the command worker task is started."""
         if self._worker_task is None or self._worker_task.done():
             _LOGGER.debug("Starting command worker task")
-            if self._command_queue is None:
-                self._command_queue = asyncio.Queue()
             self._worker_task = asyncio.create_task(self._command_worker())
         else:
             _LOGGER.debug("Command worker task already running")
@@ -102,11 +98,8 @@ class AldesApi:
         """Stop the command worker and wait for queue to empty."""
         if self._worker_task and not self._worker_task.done():
             # Wait for queue to be processed
-            if self._command_queue:
-                try:
-                    await asyncio.wait_for(self._command_queue.join(), timeout=10)
-                except TimeoutError:
-                    _LOGGER.warning("Command queue did not empty in time")
+            while self._pending_commands:
+                await asyncio.sleep(1)
 
             # Cancel the worker task
             self._worker_task.cancel()
@@ -114,17 +107,16 @@ class AldesApi:
                 await self._worker_task
 
     async def _command_worker(self) -> None:
-        """Process command requests from queue with delay between each."""
+        """Process command requests from list with delay between each."""
         _LOGGER.info("Command worker started")
         while True:
             try:
-                if self._command_queue is None:
-                    _LOGGER.debug("Queue is None, waiting...")
+                if not self._pending_commands:
                     await asyncio.sleep(1)
                     continue
 
-                _LOGGER.debug("Worker waiting for next item in queue...")
-                func, args, kwargs, description = await self._command_queue.get()
+                _LOGGER.debug("Worker waiting...")
+                func, args, kwargs, description = self._pending_commands.pop(0)
 
                 _LOGGER.debug("Worker processing command: %s", description)
 
@@ -144,18 +136,11 @@ class AldesApi:
                 _LOGGER.debug("Worker sleeping for %s seconds", REQUEST_DELAY)
                 await asyncio.sleep(REQUEST_DELAY)
 
-                # Mark task as done immediately after processing
-                self._command_queue.task_done()
-
             except asyncio.CancelledError:
                 _LOGGER.info("Command worker cancelled")
                 break
             except Exception:
                 _LOGGER.exception("Unexpected error in command worker")
-                # In case of error, we still need to mark task as done if we got an item
-                if self._command_queue is not None:
-                    with suppress(ValueError):
-                        self._command_queue.task_done()
                 await asyncio.sleep(REQUEST_DELAY)
 
     async def _queue_command(
@@ -167,11 +152,8 @@ class AldesApi:
     ) -> None:
         """Add a command to the queue."""
         await self._ensure_worker_started()
-        if self._command_queue:
-            _LOGGER.debug("Queueing command: %s", description)
-            await self._command_queue.put((func, args, kwargs or {}, description))
-        else:
-            _LOGGER.error("Failed to queue command: Queue is None")
+        _LOGGER.info("Queueing command: %s", description)
+        self._pending_commands.append((func, args, kwargs or {}, description))
 
     def _log_request_details(
         self, method: str, url: str, headers: dict, data: Any = None
