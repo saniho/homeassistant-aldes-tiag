@@ -1013,6 +1013,11 @@ class AldesThermostatsCountSensor(BaseAldesSensorEntity):
         return "Nombre de Thermostats"
 
     @property
+    def should_poll(self) -> bool:
+        """Return True to force polling."""
+        return True
+
+    @property
     def native_value(self) -> int:
         """Return the state."""
         device = self._get_device()
@@ -1184,6 +1189,11 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
         self._attr_unique_id = f"{self.device_identifier}_pending_commands"
         self._attr_native_value = 0
         _LOGGER.debug("Initialized Pending Commands sensor: %s", self._attr_unique_id)
+
+    @property
+    def should_poll(self) -> bool:
+        """Return True to force polling."""
+        return True
 
     @property
     def native_value(self) -> int:
