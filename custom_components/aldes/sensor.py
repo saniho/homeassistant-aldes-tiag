@@ -1142,8 +1142,9 @@ class AldesApiHealthSensorEntity(AldesEntity, SensorEntity):
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, context)
-        self._attr_name = f"{self.device_name} API Health"
+        self._attr_name = f"{context.device.reference} API Health"
         self._attr_unique_id = f"{self.device_identifier}_api_health"
+        self._attr_native_value = "unknown"
 
     @property
     def native_value(self) -> str | None:
@@ -1179,7 +1180,7 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, context)
-        self._attr_name = f"{self.device_name} Pending Commands"
+        self._attr_name = f"{context.device.reference} Pending Commands"
         self._attr_unique_id = f"{self.device_identifier}_pending_commands"
         self._attr_native_value = 0
         _LOGGER.debug("Initialized Pending Commands sensor: %s", self._attr_unique_id)
