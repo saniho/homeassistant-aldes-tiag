@@ -1209,10 +1209,14 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
         """Return extra state attributes."""
         api = self.coordinator.api
         worker_active = False
-        if api and api._worker_task:
-            worker_active = not api._worker_task.done()
+        history = []
+        if api:
+            if api._worker_task:
+                worker_active = not api._worker_task.done()
+            history = api._command_history
 
         return {
             "worker_active": worker_active,
             "delay_between_requests": 5,  # From const.REQUEST_DELAY
+            "history": history,
         }

@@ -83,6 +83,8 @@ class AldesApi:
             asyncio.Queue[tuple[Callable[..., Awaitable[Any]], tuple, dict, str]] | None
         ) = None
         self._worker_task: asyncio.Task[None] | None = None
+        # Track processed command history
+        self._command_history: list[str] = []
         # Track pending command verifications for retry if not applied
         self._pending_verifications: dict[str, Any] = {}
 
@@ -125,6 +127,11 @@ class AldesApi:
                 func, args, kwargs, description = await self._command_queue.get()
 
                 _LOGGER.debug("Worker processing command: %s", description)
+
+                # Add to history
+                self._command_history.append(f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}")
+                if len(self._command_history) > 5:
+                    self._command_history.pop(0)
 
                 try:
                     await func(*args, **kwargs)
