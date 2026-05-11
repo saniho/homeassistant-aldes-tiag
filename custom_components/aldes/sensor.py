@@ -1216,6 +1216,8 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
         api = self.coordinator.api
+        _LOGGER.debug("Sensor reading API instance: %d", id(api) if api else 0)
+        
         worker_active = False
         
         # We access the lists directly. Since they are modified in the worker,

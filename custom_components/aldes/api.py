@@ -110,7 +110,7 @@ class AldesApi:
 
     async def _command_worker(self) -> None:
         """Process command requests from list with delay between each."""
-        _LOGGER.info("Command worker started")
+        _LOGGER.info("Command worker started for API instance: %d", id(self))
         while True:
             try:
                 if not self._pending_commands:
@@ -122,7 +122,7 @@ class AldesApi:
                 command = self._pending_commands.pop(0)
                 func, args, kwargs, description = command
                 self._current_command = description
-                _LOGGER.debug("Worker set _current_command to: %s", self._current_command)
+                _LOGGER.debug("Worker (API %d) set _current_command to: %s", id(self), self._current_command)
                 
                 # Small delay to ensure the sensor can pick up the state change
                 await asyncio.sleep(0.5)
