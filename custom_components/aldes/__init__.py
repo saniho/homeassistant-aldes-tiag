@@ -15,7 +15,8 @@ from pathlib import Path
 import voluptuous as vol
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import HomeAssistant, ServiceCall, Event
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -72,15 +73,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register lovelace card resource automatically
     base_url = "/aldes_lovelace"
     card_path = Path(__file__).parent / "lovelace"
-    hass.http.async_register_static_paths([
+    await hass.http.async_register_static_paths([
         StaticPathConfig(base_url, card_path, True)
     ])
-    hass.http.register_resources([
-        {
-            "url": f"{base_url}/aldes-maintenance-card.js",
-            "type": "module",
-        }
-    ])
+
+    async def _register_lovelace_resource(_event: Event | None = None) -> None:
+        """Register the custom card as a lovelace resource."""
+        if "lovelace" not in hass.data:
+            return
+        
+        resources = hass.data["lovelace"].resources
+        url = f"{base_url}/aldes-maintenance-card.js"
+        
+        if not any(res.get("url") == url for res in resources.async_items()):
+            await resources.async_create_item({
+                "res_type": "module",
+                "url": url
+            })
+            _LOGGER.info("Registered Lovelace resource: %s", url)
+
+    if hass.is_running:
+        await _register_lovelace_resource()
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _register_lovelace_resource)
 
     token = entry.options.get("token", "")
     coordinator = AldesDataUpdateCoordinator(hass, None)
