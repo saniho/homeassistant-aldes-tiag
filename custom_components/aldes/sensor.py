@@ -1017,6 +1017,11 @@ class AldesThermostatsCountSensor(BaseAldesSensorEntity):
         """Return True to force polling."""
         return True
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self.async_write_ha_state()
+
     @property
     def native_value(self) -> int:
         """Return the state."""
@@ -1194,6 +1199,11 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
     def should_poll(self) -> bool:
         """Return True to force polling."""
         return True
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self.async_write_ha_state()
 
     @property
     def native_value(self) -> int:
