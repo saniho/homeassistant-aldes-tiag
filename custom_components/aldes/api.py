@@ -84,6 +84,7 @@ class AldesApi:
         self._pending_commands: list[str] = []
         self._command_history: list[str] = []
         self._failed_commands: list[str] = []
+        self._current_command: str | None = None
         # Track pending command verifications for retry if not applied
         self._pending_verifications: dict[str, Any] = {}
 
@@ -120,8 +121,11 @@ class AldesApi:
                 # func, args, kwargs, description
                 command = self._pending_commands.pop(0)
                 func, args, kwargs, description = command
+                self._current_command = description
 
                 _LOGGER.debug("Worker processing command: %s", description)
+                
+                # ... process command ...
 
                 try:
                     await func(*args, **kwargs)
@@ -134,15 +138,9 @@ class AldesApi:
                     _LOGGER.debug("Command added to history: %s", entry)
 
                 except Exception:
-                    _LOGGER.exception(
-                        "Error executing command '%s'.",
-                        description,
-                    )
-                    # Command failed: add to failed history
-                    entry = f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}"
-                    self._failed_commands.append(entry)
-                    if len(self._failed_commands) > 5:
-                        self._failed_commands.pop(0)
+                    # ... catch error ...
+                finally:
+                    self._current_command = None
 
                 _LOGGER.debug("Worker sleeping for %s seconds", REQUEST_DELAY)
                 await asyncio.sleep(REQUEST_DELAY)

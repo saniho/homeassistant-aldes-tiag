@@ -1221,6 +1221,7 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
             history = list(api._command_history)
             pending = [item[3] for item in api._pending_commands]
             failed = list(api._failed_commands)
+            current = api._current_command
 
         return {
             "worker_active": worker_active,
@@ -1228,4 +1229,5 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
             "history": history,
             "pending": pending,
             "failed": failed,
+            "current": current,
         }
