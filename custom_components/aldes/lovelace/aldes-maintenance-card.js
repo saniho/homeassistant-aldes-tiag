@@ -4,6 +4,40 @@ import {
   css,
 } from "https://unpkg.com/lit-element@2.4.0/lit-element.js?module";
 
+class AldesMaintenanceCardEditor extends LitElement {
+  static get properties() {
+    return { hass: {}, config: {} };
+  }
+
+  setConfig(config) {
+    this.config = config;
+  }
+
+  render() {
+    if (!this.hass || !this.config) return html``;
+
+    return html`
+      <div class="card-config">
+        <ha-entity-picker
+          .hass="${this.hass}"
+          .value="${this.config.modem_entity}"
+          .configValue="${'modem_entity'}"
+          @value-changed="${this._valueChanged}"
+          label="Modem Entity"
+          allow-custom-entity
+        ></ha-entity-picker>
+      </div>
+    `;
+  }
+
+  _valueChanged(ev) {
+    const config = { ...this.config, [ev.target.configValue]: ev.detail.value };
+    this.config = config;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
+  }
+}
+customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
+
 class AldesMaintenanceCard extends LitElement {
   static get properties() {
     return {
@@ -110,3 +144,10 @@ class AldesMaintenanceCard extends LitElement {
 }
 
 customElements.define("aldes-maintenance-card", AldesMaintenanceCard);
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "aldes-maintenance-card",
+  name: "Aldes Maintenance Card",
+  preview: true,
+  description: "A card to monitor your Aldes system maintenance and command queue.",
+});
