@@ -1207,15 +1207,20 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
         """Return extra state attributes."""
         api = self.coordinator.api
         worker_active = False
+        
+        # We access the lists directly. Since they are modified in the worker,
+        # we copy them to avoid 'RuntimeError: dictionary changed size during iteration' 
+        # or similar list modification errors.
         history = []
         pending = []
         failed = []
+
         if api:
             if api._worker_task:
                 worker_active = not api._worker_task.done()
-            history = api._command_history
+            history = list(api._command_history)
             pending = [item[3] for item in api._pending_commands]
-            failed = api._failed_commands
+            failed = list(api._failed_commands)
 
         return {
             "worker_active": worker_active,

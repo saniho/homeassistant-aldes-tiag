@@ -117,26 +117,30 @@ class AldesApi:
                     continue
 
                 _LOGGER.debug("Worker waiting...")
-                func, args, kwargs, description = self._pending_commands.pop(0)
+                # func, args, kwargs, description
+                command = self._pending_commands.pop(0)
+                func, args, kwargs, description = command
 
                 _LOGGER.debug("Worker processing command: %s", description)
 
                 try:
                     await func(*args, **kwargs)
-                    # Add to history upon success
+                    
+                    # Command successful: add to history
                     entry = f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}"
                     self._command_history.append(entry)
                     if len(self._command_history) > 5:
                         self._command_history.pop(0)
-                    _LOGGER.debug("Command added to history: %s (History size: %d)", entry, len(self._command_history))
+                    _LOGGER.debug("Command added to history: %s", entry)
 
                 except Exception:
                     _LOGGER.exception(
-                        "Error executing command '%s'. Worker continuing.",
+                        "Error executing command '%s'.",
                         description,
                     )
-                    # Add to failed history
-                    self._failed_commands.append(f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}")
+                    # Command failed: add to failed history
+                    entry = f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}"
+                    self._failed_commands.append(entry)
                     if len(self._failed_commands) > 5:
                         self._failed_commands.pop(0)
 
