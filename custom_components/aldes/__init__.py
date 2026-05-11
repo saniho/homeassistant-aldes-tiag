@@ -68,8 +68,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Aldes from a config entry."""
     _update_log_level(entry)
 
+    # Register lovelace card resource automatically
+    base_url = "/aldes_lovelace"
+    card_path = Path(__file__).parent / "lovelace"
+    hass.http.register_static_path(base_url, card_path, True)
+    hass.http.register_resources([
+        {
+            "url": f"{base_url}/aldes-maintenance-card.js",
+            "type": "module",
+        }
+    ])
+
     token = entry.options.get("token", "")
-    coordinator = AldesDataUpdateCoordinator(hass, None) # Placeholder to allow circular dependency resolution if needed, but let's pass proper one
+    coordinator = AldesDataUpdateCoordinator(hass, None)
     
     # We need a callback that the API can call to refresh the coordinator
     def _refresh_coordinator():
