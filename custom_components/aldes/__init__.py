@@ -13,6 +13,7 @@ from functools import partial
 from pathlib import Path
 
 import voluptuous as vol
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client
@@ -71,7 +72,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register lovelace card resource automatically
     base_url = "/aldes_lovelace"
     card_path = Path(__file__).parent / "lovelace"
-    hass.http.register_static_path(base_url, card_path, True)
+    hass.http.async_register_static_paths([
+        StaticPathConfig(base_url, card_path, True)
+    ])
     hass.http.register_resources([
         {
             "url": f"{base_url}/aldes-maintenance-card.js",
