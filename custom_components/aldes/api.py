@@ -123,6 +123,9 @@ class AldesApi:
                 func, args, kwargs, description = command
                 self._current_command = description
                 _LOGGER.debug("Worker set _current_command to: %s", self._current_command)
+                
+                # Small delay to ensure the sensor can pick up the state change
+                await asyncio.sleep(0.5)
 
                 _LOGGER.debug("Worker processing command: %s", description)
                 
