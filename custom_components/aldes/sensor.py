@@ -1214,6 +1214,7 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
         history = []
         pending = []
         failed = []
+        current = None
 
         if api:
             if api._worker_task:
