@@ -26,8 +26,10 @@ class AldesMaintenanceCard extends LitElement {
         font-weight: bold;
         margin-bottom: 16px;
         display: flex;
+        align-items: center;
         justify-content: space-between;
       }
+      .title { display: flex; align-items: center; gap: 8px; }
       .grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -41,14 +43,12 @@ class AldesMaintenanceCard extends LitElement {
         padding: 8px;
         border-radius: 8px;
       }
-      .value {
-        font-weight: bold;
-        font-size: 1.1em;
-      }
-      .label {
-        font-size: 0.8em;
-        color: var(--secondary-text-color);
-      }
+      .value { font-weight: bold; font-size: 1.1em; }
+      .label { font-size: 0.8em; color: var(--secondary-text-color); }
+      .alert { color: var(--error-color); }
+      .warning { color: var(--warning-color); }
+      .connected { color: var(--success-color); }
+      .disconnected { color: var(--error-color); }
     `;
   }
 
@@ -73,18 +73,24 @@ class AldesMaintenanceCard extends LitElement {
     const history = attrs.history || [];
     const failed = attrs.failed || [];
     const current = attrs.current || "Idle";
+    const connected = stateObj.state === "on" || attrs.is_connected;
 
     return html`
       <div class="header">
-        <span>Aldes Maintenance</span>
-        <span>${stateObj.state}</span>
+        <div class="title">
+          <ha-icon icon="mdi:air-filter"></ha-icon>
+          <span>Aldes Maintenance</span>
+        </div>
+        <span class="${connected ? 'connected' : 'disconnected'}">
+          ${connected ? "● Connected" : "● Disconnected"}
+        </span>
       </div>
       <div class="grid">
-        <div class="item">
+        <div class="item ${pending.length > 0 ? 'warning' : ''}">
           <span class="value">${pending.length}</span>
           <span class="label">Pending</span>
         </div>
-        <div class="item">
+        <div class="item ${failed.length > 0 ? 'alert' : ''}">
           <span class="value">${failed.length}</span>
           <span class="label">Failed</span>
         </div>
