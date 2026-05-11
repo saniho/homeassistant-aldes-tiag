@@ -1209,15 +1209,18 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
         worker_active = False
         history = []
         pending = []
+        failed = []
         if api:
             if api._worker_task:
                 worker_active = not api._worker_task.done()
             history = api._command_history
             pending = [item[3] for item in api._pending_commands]
+            failed = api._failed_commands
 
         return {
             "worker_active": worker_active,
             "delay_between_requests": 5,  # From const.REQUEST_DELAY
             "history": history,
             "pending": pending,
+            "failed": failed,
         }

@@ -83,6 +83,7 @@ class AldesApi:
         # Track pending commands and history
         self._pending_commands: list[str] = []
         self._command_history: list[str] = []
+        self._failed_commands: list[str] = []
         # Track pending command verifications for retry if not applied
         self._pending_verifications: dict[str, Any] = {}
 
@@ -132,6 +133,10 @@ class AldesApi:
                         "Error executing command '%s'. Worker continuing.",
                         description,
                     )
+                    # Add to failed history
+                    self._failed_commands.append(f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}")
+                    if len(self._failed_commands) > 5:
+                        self._failed_commands.pop(0)
 
                 _LOGGER.debug("Worker sleeping for %s seconds", REQUEST_DELAY)
                 await asyncio.sleep(REQUEST_DELAY)
