@@ -122,15 +122,9 @@ class AldesApi:
                 command = self._pending_commands.pop(0)
                 func, args, kwargs, description = command
                 self._current_command = description
-                _LOGGER.debug("Worker (API %d) set _current_command to: %s", id(self), self._current_command)
-                
-                # Small delay to ensure the sensor can pick up the state change
-                await asyncio.sleep(0.5)
 
                 _LOGGER.debug("Worker processing command: %s", description)
                 
-                # ... process command ...
-
                 try:
                     await func(*args, **kwargs)
                     
