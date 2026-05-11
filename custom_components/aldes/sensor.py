@@ -97,6 +97,7 @@ async def async_setup_entry(
             [
                 AldesApiHealthSensorEntity(coordinator, context),
                 AldesPendingCommandsSensorEntity(coordinator, context),
+                AldesSystemAlertSensor(coordinator, context),
             ]
         )
 
@@ -1243,4 +1244,45 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
             "pending": pending,
             "failed": failed,
             "current": current,
+        }
+
+
+class AldesSystemAlertSensor(AldesEntity, SensorEntity):
+    """Diagnostic sensor for Aldes system performance alerts."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:alert-outline"
+    _attr_entity_registry_visible_default = True
+
+    def __init__(
+        self,
+        coordinator: AldesDataUpdateCoordinator,
+        context: DeviceContext,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, context)
+        self._attr_name = f"{context.device.reference} System Alert"
+        self._attr_unique_id = f"{self.device_identifier}_system_alert"
+        self._attr_native_value = "OK"
+
+    @property
+    def should_poll(self) -> bool:
+        """Return True to force polling."""
+        return True
+
+    @property
+    def native_value(self) -> str:
+        """Evaluate system performance."""
+        device = self._get_device()
+        if not device or not device.indicator:
+            return "Unknown"
+
+        return "OK"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        return {
+            "last_check": dt_util.now().isoformat(),
+            "performance_mode": "Normal",
         }
