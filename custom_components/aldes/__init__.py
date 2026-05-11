@@ -69,22 +69,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _update_log_level(entry)
 
     token = entry.options.get("token", "")
+    coordinator = AldesDataUpdateCoordinator(hass, None) # Placeholder to allow circular dependency resolution if needed, but let's pass proper one
+    
+    # We need a callback that the API can call to refresh the coordinator
+    def _refresh_coordinator():
+        coordinator.async_update_listeners()
+
     api = AldesApi(
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
         aiohttp_client.async_get_clientsession(hass),
         token,
+        update_callback=_refresh_coordinator,
     )
-
-    if not token or not await api.check_token_validity():
-        _LOGGER.info("Token missing or invalid, authenticating...")
-        await api.authenticate()
-        hass.config_entries.async_update_entry(
-            entry,
-            options={**entry.options, "token": api.token},
-        )
-
-    coordinator = AldesDataUpdateCoordinator(hass, api)
+    
+    coordinator.api = api
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

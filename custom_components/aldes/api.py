@@ -69,6 +69,7 @@ class AldesApi:
         password: str,
         session: aiohttp.ClientSession,
         token: str = "",
+        update_callback: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize Aldes API client."""
         self._username = username
@@ -80,6 +81,7 @@ class AldesApi:
         self._cache_timestamp: dict[str, datetime] = {}
         self.health_state: ApiHealthState = ApiHealthState.ONLINE
         self._worker_task: asyncio.Task[None] | None = None
+        self._update_callback = update_callback
         # Track pending commands and history
         self._pending_commands: list[str] = []
         self._command_history: list[str] = []
@@ -147,6 +149,8 @@ class AldesApi:
                         self._failed_commands.pop(0)
                 finally:
                     self._current_command = None
+                    if self._update_callback:
+                        self._update_callback()
 
                 _LOGGER.debug("Worker sleeping for %s seconds", REQUEST_DELAY)
                 await asyncio.sleep(REQUEST_DELAY)
