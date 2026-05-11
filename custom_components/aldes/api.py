@@ -121,15 +121,15 @@ class AldesApi:
 
                 _LOGGER.debug("Worker processing command: %s", description)
 
-                # Add to history
-                entry = f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}"
-                self._command_history.append(entry)
-                if len(self._command_history) > 5:
-                    self._command_history.pop(0)
-                _LOGGER.debug("Command added to history: %s (History size: %d)", entry, len(self._command_history))
-
                 try:
                     await func(*args, **kwargs)
+                    # Add to history upon success
+                    entry = f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}"
+                    self._command_history.append(entry)
+                    if len(self._command_history) > 5:
+                        self._command_history.pop(0)
+                    _LOGGER.debug("Command added to history: %s (History size: %d)", entry, len(self._command_history))
+
                 except Exception:
                     _LOGGER.exception(
                         "Error executing command '%s'. Worker continuing.",
