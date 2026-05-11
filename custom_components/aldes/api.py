@@ -122,6 +122,7 @@ class AldesApi:
                 command = self._pending_commands.pop(0)
                 func, args, kwargs, description = command
                 self._current_command = description
+                _LOGGER.debug("Worker set _current_command to: %s", self._current_command)
 
                 _LOGGER.debug("Worker processing command: %s", description)
                 
