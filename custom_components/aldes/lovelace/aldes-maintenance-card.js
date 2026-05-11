@@ -85,6 +85,10 @@ class AldesMaintenanceCard extends LitElement {
           <span class="label">Pending</span>
         </div>
         <div class="item">
+          <span class="value">${failed.length}</span>
+          <span class="label">Failed</span>
+        </div>
+        <div class="item" style="grid-column: span 2;">
           <span class="value">${current}</span>
           <span class="label">Current</span>
         </div>
