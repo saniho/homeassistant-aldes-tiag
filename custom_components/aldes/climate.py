@@ -352,23 +352,37 @@ class AldesClimateEntity(AldesEntity, ClimateEntity):
 
         self._attr_current_temperature = thermostat.current_temperature
 
-        air_mode = device.indicator.current_air_mode
+        # --- OPTIMISTIC STATE CHECK ---
+        now = dt_util.now()
+        if self._optimistic_end_time and now < self._optimistic_end_time:
+            _LOGGER.debug(
+                "Using optimistic target temperature: %s", self._optimistic_target_temp
+            )
+            self._attr_target_temperature = self._optimistic_target_temp
+        else:
+            self._optimistic_target_temp = None
+            self._optimistic_end_time = None
 
-        # Get the effective mode considering active program
-        self._effective_air_mode = self._get_active_program_mode(air_mode) or air_mode
+            air_mode = device.indicator.current_air_mode
 
-        self._attr_hvac_mode = self._determine_hvac_mode(self._effective_air_mode)
+            # Get the effective mode considering active program
+            self._effective_air_mode = self._get_active_program_mode(air_mode) or air_mode
 
-        # ECO mode displays temperature offset for user clarity
-        temperature_offset = (
-            ECO_MODE_TEMPERATURE_OFFSET
-            if self._effective_air_mode == AirMode.HEAT_ECO
-            else 0
-        )
-        self._attr_target_temperature = thermostat.temperature_set - temperature_offset
+            self._attr_hvac_mode = self._determine_hvac_mode(self._effective_air_mode)
+
+            # ECO mode displays temperature offset for user clarity
+            temperature_offset = (
+                ECO_MODE_TEMPERATURE_OFFSET
+                if self._effective_air_mode == AirMode.HEAT_ECO
+                else 0
+            )
+            self._attr_target_temperature = (
+                thermostat.temperature_set - temperature_offset
+            )
 
         # Determine action AFTER target_temperature is set
-        self._attr_hvac_action = self._determine_hvac_action(self._effective_air_mode)
+        effective_mode = self._effective_air_mode or device.indicator.current_air_mode
+        self._attr_hvac_action = self._determine_hvac_action(effective_mode)
 
     def _get_thermostat_by_id(
         self, device: Any, target_id: int
