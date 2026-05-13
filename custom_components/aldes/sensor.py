@@ -911,13 +911,16 @@ class AldesHorsGelSensor(BaseAldesSensorEntity):
         return "Actif" if device.hors_gel else "Inactif"
 
 
-class AldesApiHealthSensor(BaseAldesSensorEntity):
-    """Sensor for API connectivity status."""
+class AldesApiHealthSensor(SensorEntity):
+    """Sensor for API connectivity status — fully independent from CoordinatorEntity."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = [state.value for state in ApiHealthState]
     _attr_entity_registry_visible_default = True
+    _attr_has_entity_name = False
+    _attr_available = True
+    _attr_should_poll = True
 
     def __init__(
         self,
@@ -925,56 +928,61 @@ class AldesApiHealthSensor(BaseAldesSensorEntity):
         context: DeviceContext,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator, context)
+        self.coordinator = coordinator
+        self._device_key = context.device_key
+        self.serial_number = context.device.serial_number
+        self.reference = context.device.reference
+        self.modem = context.device.modem
+        self._attr_unique_id = f"{self._get_device_identifier()}_api_health"
         self._attr_native_value = ApiHealthState.ONLINE.value
 
-    @property
-    def available(self) -> bool:
-        """Always available — shows its state even when API is down."""
-        return True
+    def _get_device_identifier(self) -> str:
+        serial = (self.serial_number or "").strip()
+        if serial and serial.upper() != "N/A":
+            return serial
+        modem = (self.modem or "").strip()
+        if modem:
+            return modem
+        return str(self._device_key)
 
     @property
-    def should_poll(self) -> bool:
-        """Return True to force polling."""
-        return True
-
-    @property
-    def unique_id(self) -> str | None:
-        """Return a unique ID to use for this entity."""
-        return f"{self.device_identifier}_api_health"
-
-    def _friendly_name_internal(self) -> str | None:
+    def name(self) -> str:
         """Return the friendly name."""
         return "État API Aldes"
 
     @property
-    def native_value(self) -> str:
-        """Return the state."""
-        try:
-            return self.coordinator.api.health_state.value
-        except Exception:
-            _LOGGER.exception("Error getting API health state")
-            return self._attr_native_value
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        identifier = self._get_device_identifier()
+        return DeviceInfo(
+            identifiers={(DOMAIN, identifier)},
+            manufacturer=MANUFACTURER,
+            name=f"{FRIENDLY_NAMES[self.reference]} {identifier}",
+            model=FRIENDLY_NAMES[self.reference],
+        )
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+    async def async_update(self) -> None:
+        """Poll the API health state."""
         try:
             self._attr_native_value = self.coordinator.api.health_state.value
         except Exception:
-            _LOGGER.exception("Error updating API health state")
-        self.async_write_ha_state()
+            pass
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        return self._attr_native_value
 
     @property
     def icon(self) -> str:
         """Return a dynamic icon based on the health state."""
         state_map = {
-            ApiHealthState.ONLINE: "mdi:cloud-check",
-            ApiHealthState.RETRYING: "mdi:cloud-sync",
-            ApiHealthState.DEGRADED: "mdi:cloud-alert",
-            ApiHealthState.OFFLINE: "mdi:cloud-off-outline",
+            "online": "mdi:cloud-check",
+            "retrying": "mdi:cloud-sync",
+            "degraded": "mdi:cloud-alert",
+            "offline": "mdi:cloud-off-outline",
         }
-        return state_map.get(self.coordinator.api.health_state, "mdi:cloud-question")
+        return state_map.get(self._attr_native_value, "mdi:cloud-question")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
