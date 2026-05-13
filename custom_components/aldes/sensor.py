@@ -929,6 +929,11 @@ class AldesApiHealthSensor(BaseAldesSensorEntity):
         self._attr_native_value = ApiHealthState.ONLINE.value
 
     @property
+    def available(self) -> bool:
+        """Always available — shows its state even when API is down."""
+        return True
+
+    @property
     def should_poll(self) -> bool:
         """Return True to force polling."""
         return True
