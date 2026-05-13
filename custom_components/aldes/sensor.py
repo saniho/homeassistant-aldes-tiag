@@ -95,7 +95,6 @@ async def async_setup_entry(
         _LOGGER.debug("Registering diagnostic sensors for device: %s", device_key)
         sensors.extend(
             [
-                AldesApiHealthSensorEntity(coordinator, context),
                 AldesPendingCommandsSensorEntity(coordinator, context),
                 AldesSystemAlertSensor(coordinator, context),
             ]
@@ -918,6 +917,7 @@ class AldesApiHealthSensor(BaseAldesSensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = [state.value for state in ApiHealthState]
+    _attr_entity_registry_visible_default = True
 
     @property
     def unique_id(self) -> str | None:
@@ -1138,42 +1138,6 @@ class AldesSettingsSensor(BaseAldesSensorEntity):
             "kwh_pleine": settings.kwh_pleine,
         }
 
-
-class AldesApiHealthSensorEntity(AldesEntity, SensorEntity):
-    """Diagnostic sensor for Aldes API health state."""
-
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:api"
-    _attr_entity_registry_visible_default = True
-
-    def __init__(
-        self,
-        coordinator: AldesDataUpdateCoordinator,
-        context: DeviceContext,
-    ) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, context)
-        self._attr_name = f"{context.device.reference} API Health"
-        self._attr_unique_id = f"{self.device_identifier}_api_health"
-        self._attr_native_value = "unknown"
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the state of the API."""
-        if (
-            self.coordinator
-            and self.coordinator.api
-            and hasattr(self.coordinator.api, "health_state")
-        ):
-            return self.coordinator.api.health_state.value
-        return None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return extra state attributes."""
-        return {
-            "last_check": dt_util.now().isoformat(),
-        }
 
 
 class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
