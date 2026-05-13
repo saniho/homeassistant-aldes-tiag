@@ -919,6 +919,20 @@ class AldesApiHealthSensor(BaseAldesSensorEntity):
     _attr_options = [state.value for state in ApiHealthState]
     _attr_entity_registry_visible_default = True
 
+    def __init__(
+        self,
+        coordinator: AldesDataUpdateCoordinator,
+        context: DeviceContext,
+    ) -> None:
+        """Initialize."""
+        super().__init__(coordinator, context)
+        self._attr_native_value = ApiHealthState.ONLINE.value
+
+    @property
+    def should_poll(self) -> bool:
+        """Return True to force polling."""
+        return True
+
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID to use for this entity."""
@@ -931,7 +945,20 @@ class AldesApiHealthSensor(BaseAldesSensorEntity):
     @property
     def native_value(self) -> str:
         """Return the state."""
-        return self.coordinator.api.health_state.value
+        try:
+            return self.coordinator.api.health_state.value
+        except Exception:
+            _LOGGER.exception("Error getting API health state")
+            return self._attr_native_value
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        try:
+            self._attr_native_value = self.coordinator.api.health_state.value
+        except Exception:
+            _LOGGER.exception("Error updating API health state")
+        self.async_write_ha_state()
 
     @property
     def icon(self) -> str:
