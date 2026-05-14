@@ -22,6 +22,44 @@ Cette intégration permet d'ajouter le produit Aldes T.One à Home Assistant via
 | **Statistiques et coûts**                                                                                                                                                                                                      |       ✔️        |         ✔️          |
 | **Surveillance du filtre**                                                                                                                                                                                                     |       ✔️        |         ✔️          |
 | **Carte de planning**                                                                                                                                                                                                          |       ✔️        |         ✔️          |
+| **Carte de maintenance**                                                                                                                                                                                                       |       ✔️        |         ✔️          |
+| **État de santé API**                                                                                                                                                                                                          |       ✔️        |         ✔️          |
+
+## Évolutions depuis v3.4 → v3.6
+
+### Nouveaux capteurs de diagnostic
+
+| Capteur | Rôle |
+|---------|------|
+| `sensor.<device>_api_health` | État de connexion à l'API Aldes (`online`, `offline`, `degraded`, `retrying`) |
+| `sensor.<device>_pending_commands` | File d'attente des commandes + historique succès/échecs |
+| `sensor.<device>_system_alert` | État général du système |
+| `sensor.<device>_device_info` | Détails techniques (référence, type, modem, filtres...) |
+| `sensor.<device>_settings` | Paramètres (composition foyer, antilégionelle, tarifs) |
+| `sensor.<device>_temperature_limits` | Limites min/max chauffage et clim |
+| `sensor.<device>_thermostats_count` | Liste des thermostats avec leurs températures |
+
+### Carte Lovelace « Maintenance »
+
+Nouvelle carte custom auto-enregistrée. Affiche la file d'active des commandes, l'état de connexion API, et l'historique avec timestamps de mise en file → exécution.
+
+```yaml
+type: custom:aldes-maintenance-card
+modem_entity: sensor.<device>_pending_commands
+connectivity_entity: sensor.<device>_api_health
+```
+
+### Auto-enregistrement Lovelace
+
+Les ressources JS des cartes sont automatiquement déclarées dans Lovelace à l'installation. Plus besoin d'ajouter manuellement les ressources dans Paramètres.
+
+### Fiabilité et robustesse
+
+- **Timestamps doubles** : l'historique affiche `14:30:00→14:30:05 - action` (file d'attente → exécution/réel)
+- **Capteur API Health** retravaillé pour ne plus rester bloqué en `unavailable` après une erreur réseau passagère
+- **Attribut `integration_version`** sur tous les capteurs pour faciliter le diagnostic
+- **Éditeur visuel** pour configurer la carte maintenance (plus besoin d'YAML)
+- **Champ connectivité** dans la carte : affiche le statut live via `sensor.<device>_api_health`
 
 ## Stabilité et Robustesse
 
@@ -62,35 +100,6 @@ python3 test_standalone.py
 ✔️ Changer le mode air (Confort, Éco, Programme...)  
 ✔️ Contrôler le mode eau chaude (T.One AquaAIR)
 
-📖 [Voir la documentation complète](TEST_STANDALONE_README.md)
-
-## 🧪 Test Autonome (Sans Home Assistant)
-
-Pour tester l'intégration **sans Home Assistant**, un outil de menu interactif est disponible :
-
-### Démarrage rapide
-
-**Windows:**
-```cmd
-python test_standalone.py
-```
-
-**Linux/MacOS:**
-```bash
-python3 test_standalone.py
-```
-
-### Fonctionnalités
-
-✔️ S'authentifier avec Aldes Connect  
-✔️ Récupérer les informations du compte  
-✔️ Afficher les thermostats et pièces  
-✔️ Modifier la température  
-✔️ Changer le mode air (Confort, Éco, Programme...)  
-✔️ Contrôler le mode eau chaude (T.One AquaAIR)
-
-📖 [Voir la documentation complète](TEST_STANDALONE_README.md)
-
 ### 🆘 Pas de données affichées?
 
 Si vous voyez "Aucune pièce trouvée" ou "Aucun thermostat trouvé":
@@ -103,6 +112,10 @@ Si vous voyez "Aucune pièce trouvée" ou "Aucun thermostat trouvé":
 
 Dans HACS, ajoutez le dépôt personnalisé <https://github.com/tiagfernandes/homeassistant-aldes> et sélectionnez la catégorie Intégration.
 
+### Mise à jour depuis v3.5.0
+
+L'intégration s'auto-enregistre et les nouvelles entités (API Health, Pending Commands, etc.) apparaissent automatiquement après redémarrage. Aucune action manuelle n'est requise.
+
 ## ⚠️ Avertissement Légal
 
 **Cette intégration n'est pas officielle et n'a aucun lien avec Aldes.** Elle est développée et maintenue par la communauté. Les créateurs et contributeurs de cette intégration ne sont pas responsables des dysfonctionnements, pertes de données, dommages matériels ou immatériels qui pourraient résulter de son utilisation. Utilisez-la à vos risques et périls.
@@ -110,6 +123,18 @@ Dans HACS, ajoutez le dépôt personnalisé <https://github.com/tiagfernandes/ho
 ## Configuration
 
 Le nom d'utilisateur et le mot de passe demandés lors de la configuration sont les mêmes que ceux que vous utilisez pour l'application mobile Aldes Connect.
+
+### Carte de maintenance
+
+Une fois l'intégration installée, ajoutez une carte manuelle :
+
+```yaml
+type: custom:aldes-maintenance-card
+modem_entity: sensor.aldes_XXXX_pending_commands
+connectivity_entity: sensor.aldes_XXXX_api_health
+```
+
+Vous pouvez aussi utiliser l'éditeur visuel : cliquez sur "Modifier" dans le coin droit de la carte.
 
 ### Carte de planning interactive (optionnel)
 
