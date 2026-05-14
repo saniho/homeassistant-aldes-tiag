@@ -905,16 +905,13 @@ class AldesHorsGelSensor(BaseAldesSensorEntity):
         return "Actif" if device.hors_gel else "Inactif"
 
 
-class AldesApiHealthSensor(SensorEntity):
-    """Sensor for API connectivity status — fully independent from CoordinatorEntity."""
+class AldesApiHealthSensor(AldesEntity, SensorEntity):
+    """Sensor for API connectivity status."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = [state.value for state in ApiHealthState]
     _attr_entity_registry_visible_default = True
-    _attr_has_entity_name = False
-    _attr_available = True
-    _attr_should_poll = True
 
     def __init__(
         self,
@@ -922,55 +919,37 @@ class AldesApiHealthSensor(SensorEntity):
         context: DeviceContext,
     ) -> None:
         """Initialize."""
-        super().__init__()
-        self.coordinator = coordinator
-        self._device_key = context.device_key
-        self.serial_number = context.device.serial_number
-        self.reference = context.device.reference
-        self.modem = context.device.modem
-        self._attr_unique_id = f"{self._get_device_identifier()}_api_health"
+        super().__init__(coordinator, context)
+        self._attr_unique_id = f"{self.device_identifier}_api_health"
         self._attr_native_value = ApiHealthState.ONLINE.value
 
-    def _get_device_identifier(self) -> str:
-        serial = (self.serial_number or "").strip()
-        if serial and serial.upper() != "N/A":
-            return serial
-        modem = (self.modem or "").strip()
-        if modem:
-            return modem
-        return str(self._device_key)
+    @property
+    def available(self) -> bool:
+        return True
 
     @property
-    def name(self) -> str:
-        """Return the friendly name."""
-        return "État API Aldes"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return the device info."""
-        identifier = self._get_device_identifier()
-        return DeviceInfo(
-            identifiers={(DOMAIN, identifier)},
-            manufacturer=MANUFACTURER,
-            name=f"{FRIENDLY_NAMES[self.reference]} {identifier}",
-            model=FRIENDLY_NAMES[self.reference],
-        )
+    def should_poll(self) -> bool:
+        return True
 
     async def async_update(self) -> None:
-        """Poll the API health state."""
         try:
             self._attr_native_value = self.coordinator.api.health_state.value
         except Exception:
             pass
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_schedule_update_ha_state(True)
+
+    def _friendly_name_internal(self) -> str | None:
+        return "État API Aldes"
+
     @property
     def native_value(self) -> str:
-        """Return the state."""
         return self._attr_native_value
 
     @property
     def icon(self) -> str:
-        """Return a dynamic icon based on the health state."""
         state_map = {
             "online": "mdi:cloud-check",
             "retrying": "mdi:cloud-sync",
@@ -981,7 +960,6 @@ class AldesApiHealthSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return extra state attributes with diagnostic data."""
         try:
             info = self.coordinator.api.get_diagnostic_info()
             info["integration_version"] = VERSION
