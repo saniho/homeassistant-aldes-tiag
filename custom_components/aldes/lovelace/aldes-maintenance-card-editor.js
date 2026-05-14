@@ -22,6 +22,14 @@ class AldesMaintenanceCardEditor extends LitElement {
           label="Modem Entity"
           allow-custom-entity
         ></ha-entity-picker>
+        <ha-entity-picker
+          .hass="${this.hass}"
+          .value="${this.config.connectivity_entity}"
+          .configValue="${'connectivity_entity'}"
+          @value-changed="${this._valueChanged}"
+          label="Connectivity Sensor (API Health)"
+          allow-custom-entity
+        ></ha-entity-picker>
       </div>
     `;
   }

@@ -73,7 +73,16 @@ class AldesMaintenanceCard extends LitElement {
     const history = attrs.history || [];
     const failed = attrs.failed || [];
     const current = attrs.current || "Idle";
-    const connected = stateObj.state === "on" || attrs.is_connected;
+
+    let connected = stateObj.state === "on" || attrs.is_connected;
+    let connectivityState = "";
+    if (this.config.connectivity_entity) {
+      const connState = this.hass.states[this.config.connectivity_entity];
+      if (connState) {
+        connectivityState = connState.state;
+        connected = connState.state === "online";
+      }
+    }
 
     return html`
       <div class="header">
@@ -83,6 +92,7 @@ class AldesMaintenanceCard extends LitElement {
         </div>
         <span class="${connected ? 'connected' : 'disconnected'}">
           ${connected ? "● Connected" : "● Disconnected"}
+          ${connectivityState ? html` (${connectivityState})` : ""}
         </span>
       </div>
       <div class="grid">
