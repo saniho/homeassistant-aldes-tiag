@@ -227,6 +227,11 @@ class BaseAldesSensorEntity(AldesEntity, SensorEntity):
         """Return the current sensor value."""
         return self._state
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        return {"integration_version": VERSION}
+
     @callback
     def _update_state(self, value: Any) -> None:
         """Update the internal state and notify Home Assistant."""
@@ -447,31 +452,18 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
         """Return extra state attributes with planning data."""
         device = self._get_device()
         if not device:
-            return {}
+            return {"integration_version": VERSION}
 
         try:
             planning = getattr(device, self.planning_key, None)
-            if planning:
-                commands = [
-                    item if isinstance(item, str) else item.get("command")
-                    for item in planning
-                    if isinstance(item, str | dict)
-                ]
-                commands = [c for c in commands if c]
-                {
-                    "planning_data": commands,
-                    "item_count": len(commands),
-                }
-            else:
-                pass
         except Exception as e:
             _LOGGER.error(
                 "Error getting planning attributes %s: %s", self.planning_type, e
             )
-            return {}
+            return {"integration_version": VERSION}
         else:
             if not planning:
-                return {}
+                return {"integration_version": VERSION}
             commands = [
                 item if isinstance(item, str) else item.get("command")
                 for item in planning
@@ -481,6 +473,7 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
             return {
                 "planning_data": commands,
                 "item_count": len(commands),
+                "integration_version": VERSION,
             }
 
 
@@ -988,10 +981,12 @@ class AldesApiHealthSensor(SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes with diagnostic data."""
         try:
-            return self.coordinator.api.get_diagnostic_info()
+            info = self.coordinator.api.get_diagnostic_info()
+            info["integration_version"] = VERSION
+            return info
         except Exception as e:
             _LOGGER.warning("Error getting API diagnostic info: %s", e)
-            return {}
+            return {"integration_version": VERSION}
 
 
 class AldesDeviceInfoSensor(BaseAldesSensorEntity):
@@ -1023,7 +1018,7 @@ class AldesDeviceInfoSensor(BaseAldesSensorEntity):
         """Return extra state attributes with device details."""
         device = self._get_device()
         if device is None:
-            return {}
+            return {"integration_version": VERSION}
 
         return {
             "reference": device.reference,
@@ -1034,6 +1029,7 @@ class AldesDeviceInfoSensor(BaseAldesSensorEntity):
             "thermostats_count": len(device.indicator.thermostats),
             "has_filter": device.has_filter,
             "filter_wear": device.filter_wear,
+            "integration_version": VERSION,
         }
 
 
@@ -1076,9 +1072,8 @@ class AldesThermostatsCountSensor(BaseAldesSensorEntity):
         """Return extra state attributes with thermostat details."""
         device = self._get_device()
         if device is None:
-            return {}
+            return {"integration_version": VERSION}
 
-        thermostats = []
         thermostats = [
             {
                 "id": t.id,
@@ -1090,7 +1085,7 @@ class AldesThermostatsCountSensor(BaseAldesSensorEntity):
             for t in device.indicator.thermostats
         ]
 
-        return {"thermostats": thermostats}
+        return {"thermostats": thermostats, "integration_version": VERSION}
 
 
 class AldesTemperatureLimitsSensor(BaseAldesSensorEntity):
@@ -1126,7 +1121,7 @@ class AldesTemperatureLimitsSensor(BaseAldesSensorEntity):
         """Return extra state attributes with temperature limits."""
         device = self._get_device()
         if device is None:
-            return {}
+            return {"integration_version": VERSION}
 
         indicator = device.indicator
         return {
@@ -1135,6 +1130,7 @@ class AldesTemperatureLimitsSensor(BaseAldesSensorEntity):
             "cool_min": indicator.cmist,
             "cool_max": indicator.cmast,
             "main_temperature": indicator.main_temperature,
+            "integration_version": VERSION,
         }
 
 
@@ -1168,7 +1164,7 @@ class AldesSettingsSensor(BaseAldesSensorEntity):
         """Return extra state attributes with settings."""
         device = self._get_device()
         if device is None:
-            return {}
+            return {"integration_version": VERSION}
 
         settings = device.indicator.settings
         return {
@@ -1176,6 +1172,7 @@ class AldesSettingsSensor(BaseAldesSensorEntity):
             "antilegio_cycle": settings.antilegio,
             "kwh_creuse": settings.kwh_creuse,
             "kwh_pleine": settings.kwh_pleine,
+            "integration_version": VERSION,
         }
 
 
@@ -1248,6 +1245,7 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
             "pending": pending,
             "failed": failed,
             "current": current,
+            "integration_version": VERSION,
         }
 
 
@@ -1289,4 +1287,5 @@ class AldesSystemAlertSensor(AldesEntity, SensorEntity):
         return {
             "last_check": dt_util.now().isoformat(),
             "performance_mode": "Normal",
+            "integration_version": VERSION,
         }
