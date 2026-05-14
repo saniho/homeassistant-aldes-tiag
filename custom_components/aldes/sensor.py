@@ -24,6 +24,7 @@ from .const import (
     FRIENDLY_NAMES,
     MANUFACTURER,
     STATISTICS_UPDATE_INTERVAL,
+    VERSION,
     WATER_LEVEL_THRESHOLDS,
 )
 from .entity import AldesEntity, DeviceContext, ThermostatApiEntity
