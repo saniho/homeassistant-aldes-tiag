@@ -120,10 +120,10 @@ class AldesApi:
                     continue
 
                 _LOGGER.debug("Worker waiting...")
-                # func, args, kwargs, description
                 command = self._pending_commands.pop(0)
-                func, args, kwargs, description = command
+                func, args, kwargs, description, queue_time = command
                 self._current_command = description
+                queue_str = queue_time.strftime("%H:%M:%S")
 
                 _LOGGER.debug("Worker processing command: %s", description)
                 
@@ -131,7 +131,8 @@ class AldesApi:
                     await func(*args, **kwargs)
                     
                     # Command successful: add to history
-                    entry = f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}"
+                    done_str = datetime.now(UTC).strftime("%H:%M:%S")
+                    entry = f"{queue_str}→{done_str} - {description}"
                     self._command_history.append(entry)
                     if len(self._command_history) > 5:
                         self._command_history.pop(0)
@@ -143,7 +144,8 @@ class AldesApi:
                         description,
                     )
                     # Add to failed history
-                    entry = f"{datetime.now(UTC).strftime('%H:%M:%S')} - {description}"
+                    done_str = datetime.now(UTC).strftime("%H:%M:%S")
+                    entry = f"{queue_str}→{done_str} - {description}"
                     self._failed_commands.append(entry)
                     if len(self._failed_commands) > 5:
                         self._failed_commands.pop(0)
@@ -172,7 +174,7 @@ class AldesApi:
         """Add a command to the queue."""
         await self._ensure_worker_started()
         _LOGGER.info("Queueing command: %s", description)
-        self._pending_commands.append((func, args, kwargs or {}, description))
+        self._pending_commands.append((func, args, kwargs or {}, description, datetime.now(UTC)))
 
     def _log_request_details(
         self, method: str, url: str, headers: dict, data: Any = None

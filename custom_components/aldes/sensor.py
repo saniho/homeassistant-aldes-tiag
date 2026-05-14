@@ -1214,7 +1214,10 @@ class AldesPendingCommandsSensorEntity(AldesEntity, SensorEntity):
             if api._worker_task:
                 worker_active = not api._worker_task.done()
             history = list(api._command_history)
-            pending = [item[3] for item in api._pending_commands]
+            pending = [
+                f"{item[4].strftime('%H:%M:%S')} - {item[3]}"
+                for item in api._pending_commands
+            ]
             failed = list(api._failed_commands)
             current = api._current_command
 
