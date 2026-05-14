@@ -80,7 +80,7 @@ class AldesMaintenanceCard extends LitElement {
       const connState = this.hass.states[this.config.connectivity_entity];
       if (connState) {
         connectivityState = connState.state;
-        connected = connState.state === "online";
+        connected = connState.state === "online" || connState.state === "on";
       }
     }
 
