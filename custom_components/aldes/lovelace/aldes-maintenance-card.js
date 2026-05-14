@@ -57,24 +57,24 @@ class AldesMaintenanceCard extends LitElement {
   }
 
   setConfig(config) {
-    if (!config.modem_entity) {
-      throw new Error("You need to define modem_entity");
-    }
     this.config = config;
   }
 
   render() {
-    if (!this.hass) return html``;
-    const stateObj = this.hass.states[this.config.modem_entity];
-    if (!stateObj) return html`Entity not found: ${this.config.modem_entity}`;
+    if (!this.hass || !this.config) return html``;
+    if (!this.config.modem_entity && !this.config.connectivity_entity) {
+      return html`<ha-card><ha-alert alert-type="info">Configure the card entities in the editor.</ha-alert></ha-card>`;
+    }
 
-    const attrs = stateObj.attributes || {};
+    const stateObj = this.config.modem_entity ? this.hass.states[this.config.modem_entity] : null;
+
+    const attrs = stateObj ? stateObj.attributes || {} : {};
     const pending = attrs.pending || [];
     const history = attrs.history || [];
     const failed = attrs.failed || [];
-    const current = attrs.current || "Idle";
+    const current = attrs.current || "—";
 
-    let connected = stateObj.state === "on" || attrs.is_connected;
+    let connected = stateObj ? stateObj.state === "on" || attrs.is_connected : false;
     let connectivityState = "";
     if (this.config.connectivity_entity) {
       const connState = this.hass.states[this.config.connectivity_entity];
@@ -95,6 +95,7 @@ class AldesMaintenanceCard extends LitElement {
           ${connectivityState ? html` (${connectivityState})` : ""}
         </span>
       </div>
+      ${stateObj ? html`
       <div class="grid">
         <div class="item ${pending.length > 0 ? 'warning' : ''}">
           <span class="value">${pending.length}</span>
@@ -115,6 +116,7 @@ class AldesMaintenanceCard extends LitElement {
           ${history.slice(-3).map(h => html`<li>${h}</li>`)}
         </ul>
       </div>
+      ` : ""}
     `;
   }
 }
