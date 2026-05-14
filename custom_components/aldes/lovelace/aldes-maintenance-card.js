@@ -49,6 +49,25 @@ class AldesMaintenanceCard extends LitElement {
       .warning { color: var(--warning-color); }
       .connected { color: var(--success-color); }
       .disconnected { color: var(--error-color); }
+      .detail-section {
+        margin-top: 16px;
+      }
+      .detail-title {
+        font-weight: 600;
+        font-size: 0.85em;
+        margin-bottom: 4px;
+        color: var(--secondary-text-color);
+      }
+      .detail-list {
+        margin: 0;
+        padding-left: 20px;
+        font-size: 0.85em;
+      }
+      .detail-list li {
+        margin: 2px 0;
+      }
+      .fail-item { color: var(--error-color); }
+      .pending-item { color: var(--warning-color); }
     `;
   }
 
@@ -67,7 +86,6 @@ class AldesMaintenanceCard extends LitElement {
     }
 
     const stateObj = this.config.modem_entity ? this.hass.states[this.config.modem_entity] : null;
-
     const attrs = stateObj ? stateObj.attributes || {} : {};
     const pending = attrs.pending || [];
     const history = attrs.history || [];
@@ -83,6 +101,10 @@ class AldesMaintenanceCard extends LitElement {
         connected = connState.state === "online" || connState.state === "on";
       }
     }
+
+    const showHistory = this.config.show_history_detail !== false;
+    const showFailed = this.config.show_failed_detail !== false;
+    const showPending = this.config.show_pending_detail !== false;
 
     return html`
       <div class="header">
@@ -110,12 +132,33 @@ class AldesMaintenanceCard extends LitElement {
           <span class="label">Current</span>
         </div>
       </div>
-      <div style="margin-top: 16px;">
-        <div class="label">Recent History:</div>
-        <ul>
-          ${history.slice(-3).map(h => html`<li>${h}</li>`)}
-        </ul>
-      </div>
+
+      ${showPending && pending.length > 0 ? html`
+        <div class="detail-section">
+          <div class="detail-title">En attente :</div>
+          <ul class="detail-list">
+            ${pending.map(p => html`<li class="pending-item">${p}</li>`)}
+          </ul>
+        </div>
+      ` : ""}
+
+      ${showFailed && failed.length > 0 ? html`
+        <div class="detail-section">
+          <div class="detail-title">Échecs :</div>
+          <ul class="detail-list">
+            ${failed.map(f => html`<li class="fail-item">${f}</li>`)}
+          </ul>
+        </div>
+      ` : ""}
+
+      ${showHistory && history.length > 0 ? html`
+        <div class="detail-section">
+          <div class="detail-title">Historique :</div>
+          <ul class="detail-list">
+            ${history.slice(-5).reverse().map(h => html`<li>${h}</li>`)}
+          </ul>
+        </div>
+      ` : ""}
       ` : ""}
     `;
   }
