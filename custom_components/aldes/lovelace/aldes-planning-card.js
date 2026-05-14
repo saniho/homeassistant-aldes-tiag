@@ -412,3 +412,20 @@ if (!customElements.get('aldes-planning-card')) {
 } else {
     console.log('Aldes Planning Card already registered');
 }
+
+// Editor
+if (!customElements.get('aldes-planning-card-editor')) {
+    import("/aldes_lovelace/aldes-planning-card-editor.js");
+}
+
+AldesPlanningCard.getConfigElement = function getConfigElement() {
+    return document.createElement("aldes-planning-card-editor");
+};
+
+window.customCards = window.customCards || [];
+window.customCards.push({
+    type: "aldes-planning-card",
+    name: "Aldes Planning Card",
+    description: "Interactive weekly planning grid for Aldes heating/cooling schedules.",
+    preview: true,
+});

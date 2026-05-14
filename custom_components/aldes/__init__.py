@@ -85,8 +85,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     resources = hass.data["lovelace"].resources
     url_card = f"{base_url}/aldes-maintenance-card.js"
     url_editor = f"{base_url}/aldes-maintenance-card-editor.js"
+    url_planning = f"{base_url}/aldes-planning-card.js"
+    url_planning_editor = f"{base_url}/aldes-planning-card-editor.js"
     
-    for url in [url_card, url_editor]:
+    for url in [url_card, url_editor, url_planning, url_planning_editor]:
         if not any(res.get("url") == url for res in resources.async_items()):
             await resources.async_create_item({
                 "res_type": "module",

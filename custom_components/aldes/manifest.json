@@ -13,6 +13,6 @@
   "requirements": [
     "backoff>=2.2.1"
   ],
-  "version": "3.6.0-beta.18",
+  "version": "3.6.0-beta.19",
   "reload": "CONFIG_ENTRY"
 }
