@@ -364,8 +364,10 @@ class AldesPlanningCard extends HTMLElement {
 
     _discoverEntities() {
         const ids = Object.keys(this._hass?.states || {});
-        const regex = /^sensor\.aldes_.*_planning_(heating|cooling)_prog_[a-d]$/i;
-        return ids.filter((id) => regex.test(id)).sort();
+        return ids.filter((id) => {
+            const state = this._hass?.states?.[id];
+            return state && state.attributes && "planning_data" in state.attributes;
+        }).sort();
     }
 
     _modeRank(entityId) {

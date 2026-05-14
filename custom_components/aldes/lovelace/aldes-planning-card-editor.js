@@ -1,7 +1,5 @@
 import { LitElement, html } from "https://unpkg.com/lit-element@2.4.0/lit-element.js?module";
 
-const MODE_LABELS = { A: "Chauffage Prog A", B: "Chauffage Prog B", C: "Climatisation Prog C", D: "Climatisation Prog D" };
-
 class AldesPlanningCardEditor extends LitElement {
   static get properties() {
     return { hass: {}, config: {} };
@@ -14,45 +12,48 @@ class AldesPlanningCardEditor extends LitElement {
   render() {
     if (!this.hass || !this.config) return html``;
 
-    const allPlanning = Object.keys(this.hass.states).filter(
-      (eid) =>
-        eid.startsWith("sensor.aldes_") &&
-        (eid.includes("_planning_heating_") || eid.includes("_planning_cooling_"))
-    ).sort();
+    const allPlanning = Object.keys(this.hass.states)
+      .filter((eid) => {
+        const state = this.hass.states[eid];
+        return state && state.attributes && "planning_data" in state.attributes;
+      })
+      .sort();
 
     const configured = this.config.entities || [];
     const discovered = configured.length === 0;
 
     return html`
       <div class="card-config">
-        <ha-formfield label="Mode découverte automatique">
-          <ha-switch
-            .checked="${discovered}"
-            @change="${this._toggleDiscovery}"
-          ></ha-switch>
-        </ha-formfield>
+        <p style="margin-bottom:12px;">
+          <label>
+            <input type="checkbox" ?checked="${discovered}" @change="${this._toggleDiscovery}" />
+            Découverte automatique
+          </label>
+        </p>
 
         ${discovered
           ? html`
-            <div style="color: var(--secondary-text-color); font-size: 0.9em; padding: 8px 0;">
-              Découverte auto : ${allPlanning.length} planning(s) trouvé(s)
-            </div>
+            <p style="color: var(--secondary-text-color); font-size: 0.9em;">
+              ${allPlanning.length} planning(s) trouvé(s) automatiquement
+            </p>
           `
           : html`
+            <p style="margin-bottom:8px; font-weight:600;">Sélectionnez les plannings :</p>
             ${allPlanning.map((eid) => {
-              const label = eid.replace(/^sensor\./, "");
+              const state = this.hass.states[eid];
+              const label = state?.attributes?.friendly_name || eid;
               const selected = configured.includes(eid);
               return html`
-                <ha-formfield label="${label}">
-                  <ha-checkbox
-                    .checked="${selected}"
-                    @change="${(ev) => this._toggleEntity(eid, ev.target.checked)}"
-                  ></ha-checkbox>
-                </ha-formfield>
+                <p style="margin:4px 0;">
+                  <label>
+                    <input type="checkbox" ?checked="${selected}" @change="${(ev) => this._toggleEntity(eid, ev.target.checked)}" />
+                    ${label}
+                  </label>
+                </p>
               `;
             })}
             ${allPlanning.length === 0
-              ? html`<div style="color: var(--secondary-text-color);">Aucune entité planning trouvée</div>`
+              ? html`<p style="color: var(--secondary-text-color);">Aucune entité planning trouvée</p>`
               : ""}
           `}
       </div>
