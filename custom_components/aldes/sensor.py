@@ -922,6 +922,7 @@ class AldesApiHealthSensor(SensorEntity):
         context: DeviceContext,
     ) -> None:
         """Initialize."""
+        super().__init__()
         self.coordinator = coordinator
         self._device_key = context.device_key
         self.serial_number = context.device.serial_number
