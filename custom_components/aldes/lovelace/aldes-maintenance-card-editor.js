@@ -1,10 +1,5 @@
 import { LitElement, html } from "https://unpkg.com/lit-element@2.4.0/lit-element.js?module";
 
-const OPTIONS = [
-  ["modem_entity", "Modem Entity (Pending Commands)"],
-  ["connectivity_entity", "Connectivity Sensor (API Health)"],
-];
-
 class AldesMaintenanceCardEditor extends LitElement {
   static get properties() {
     return { hass: {}, config: {} };
@@ -19,26 +14,27 @@ class AldesMaintenanceCardEditor extends LitElement {
 
     return html`
       <div class="card-config">
-        ${OPTIONS.map(
-          ([key, label]) => html`
-            <ha-entity-picker
-              .hass="${this.hass}"
-              .value="${this.config[key] || ""}"
-              .configValue="${key}"
-              @value-changed="${this._valueChanged}"
-              label="${label}"
-              allow-custom-entity
-            ></ha-entity-picker>
-          `
-        )}
+        <ha-entity-picker
+          .hass="${this.hass}"
+          .value="${this.config.modem_entity || ""}"
+          @value-changed="${(ev) => this._valueChanged(ev, "modem_entity")}"
+          label="Modem Entity (Pending Commands)"
+          allow-custom-entity
+        ></ha-entity-picker>
+        <ha-entity-picker
+          .hass="${this.hass}"
+          .value="${this.config.connectivity_entity || ""}"
+          @value-changed="${(ev) => this._valueChanged(ev, "connectivity_entity")}"
+          label="Connectivity Sensor (API Health)"
+          allow-custom-entity
+        ></ha-entity-picker>
       </div>
     `;
   }
 
-  _valueChanged(ev) {
-    const key = ev.currentTarget.configValue || ev.target.configValue;
-    if (!key) return;
-    const config = { ...this.config, [key]: ev.detail.value || undefined };
+  _valueChanged(ev, key) {
+    const val = ev.detail && ev.detail.value ? ev.detail.value : "";
+    const config = { ...this.config, [key]: val };
     this.config = config;
     this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
   }
