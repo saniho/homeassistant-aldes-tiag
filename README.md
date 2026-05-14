@@ -25,7 +25,7 @@ Cette intégration permet d'ajouter le produit Aldes T.One à Home Assistant via
 | **Carte de maintenance**                                                                                                                                                                                                       |       ✔️        |         ✔️          |
 | **État de santé API**                                                                                                                                                                                                          |       ✔️        |         ✔️          |
 
-## Évolutions depuis v3.4 → v3.6
+## Évolutions v3.5 → v3.7
 
 ### Nouveaux capteurs de diagnostic
 
