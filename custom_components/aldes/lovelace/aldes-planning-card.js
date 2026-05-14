@@ -366,7 +366,10 @@ class AldesPlanningCard extends HTMLElement {
         const ids = Object.keys(this._hass?.states || {});
         return ids.filter((id) => {
             const state = this._hass?.states?.[id];
-            return state && state.attributes && "planning_data" in state.attributes;
+            if (!state || !state.attributes) return false;
+            if ("planning_data" in state.attributes) return true;
+            const name = (state.attributes.friendly_name || "").toLowerCase();
+            return name.includes("planning");
         }).sort();
     }
 
@@ -415,11 +418,6 @@ if (!customElements.get('aldes-planning-card')) {
     console.log('Aldes Planning Card already registered');
 }
 
-// Editor
-if (!customElements.get('aldes-planning-card-editor')) {
-    import("/aldes_lovelace/aldes-planning-card-editor.js");
-}
-
 AldesPlanningCard.getConfigElement = function getConfigElement() {
     return document.createElement("aldes-planning-card-editor");
 };
@@ -431,3 +429,70 @@ window.customCards.push({
     description: "Interactive weekly planning grid for Aldes heating/cooling schedules.",
     preview: true,
 });
+
+// ─── Editor ─────────────────────────────────────────────────────────────────────
+
+class AldesPlanningCardEditor extends HTMLElement {
+    setConfig(config) { this._config = config; }
+    set hass(hass) { this._hass = hass; this._render(); }
+
+    _findCandidates() {
+        return Object.keys(this._hass?.states || {}).filter((eid) => {
+            const s = this._hass.states[eid];
+            if (!s || !s.attributes) return false;
+            if ("planning_data" in s.attributes) return true;
+            const name = (s.attributes.friendly_name || "").toLowerCase();
+            return name.includes("planning");
+        }).sort();
+    }
+
+    _render() {
+        if (!this._hass || !this._config) return;
+        const candidates = this._findCandidates();
+        const configured = this._config.entities || [];
+        const auto = configured.length === 0;
+
+        let html = '<div class="card-config">';
+        html += '<p style="margin-bottom:12px;">';
+        html += '<label><input type="checkbox" id="auto-chk"' + (auto ? ' checked' : '') + ' /> Découverte automatique</label>';
+        html += '</p>';
+
+        if (auto) {
+            html += '<p style="color:var(--secondary-text-color);font-size:0.9em;">' + candidates.length + ' planning(s) trouvé(s) automatiquement</p>';
+        } else {
+            html += '<p style="margin-bottom:8px;font-weight:600;">Sélectionnez les plannings :</p>';
+            for (const eid of candidates) {
+                const state = this._hass.states[eid];
+                const label = (state?.attributes?.friendly_name || eid);
+                const checked = configured.includes(eid);
+                html += '<p style="margin:4px 0;"><label><input type="checkbox" class="entity-cbx" data-entity="' + eid + '"' + (checked ? ' checked' : '') + ' /> ' + label + '</label></p>';
+            }
+            if (candidates.length === 0) {
+                html += '<p style="color:var(--secondary-text-color);">Aucune entité planning trouvée</p>';
+            }
+        }
+        html += '</div>';
+        this.innerHTML = html;
+
+        this.querySelector("#auto-chk")?.addEventListener("change", (e) => this._toggleDiscovery(e.target.checked));
+        for (const cb of this.querySelectorAll(".entity-cbx")) {
+            cb.addEventListener("change", (e) => this._toggleEntity(e.target.dataset.entity, e.target.checked));
+        }
+    }
+
+    _toggleDiscovery(checked) {
+        const config = { ...this._config };
+        if (checked) delete config.entities;
+        else config.entities = [];
+        this._config = config;
+        this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
+    }
+
+    _toggleEntity(eid, add) {
+        const current = this._config.entities || [];
+        const config = { ...this._config, entities: add ? [...current, eid] : current.filter((e) => e !== eid) };
+        this._config = config;
+        this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
+    }
+}
+customElements.define("aldes-planning-card-editor", AldesPlanningCardEditor);
