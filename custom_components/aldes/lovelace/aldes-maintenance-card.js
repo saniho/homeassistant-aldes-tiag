@@ -182,51 +182,38 @@ class AldesMaintenanceCardEditor extends LitElement {
 
     return html`
       <div class="card-config">
-        <ha-entity-picker
-          .hass="${this.hass}"
-          .value="${this.config.modem_entity || ""}"
-          @value-changed="${(ev) => this._valueChanged(ev, "modem_entity")}"
-          label="Modem Entity (Pending Commands)"
-          allow-custom-entity
-        ></ha-entity-picker>
-        <ha-entity-picker
-          .hass="${this.hass}"
-          .value="${this.config.connectivity_entity || ""}"
-          @value-changed="${(ev) => this._valueChanged(ev, "connectivity_entity")}"
-          label="Connectivity Sensor (API Health)"
-          allow-custom-entity
-        ></ha-entity-picker>
+        <div style="margin-bottom: 8px;">
+          <label style="font-weight: 500; display: block; margin-bottom: 4px;">Modem Entity (Pending Commands)</label>
+          <input
+            type="text"
+            .value="${this.config.modem_entity || ""}"
+            @input="${(ev) => this._valueChanged(ev, "modem_entity")}"
+            style="width: 100%; padding: 8px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--input-fill); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box;"
+          />
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="font-weight: 500; display: block; margin-bottom: 4px;">Connectivity Sensor (API Health)</label>
+          <input
+            type="text"
+            .value="${this.config.connectivity_entity || ""}"
+            @input="${(ev) => this._valueChanged(ev, "connectivity_entity")}"
+            style="width: 100%; padding: 8px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--input-fill); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box;"
+          />
+        </div>
 
         <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--divider-color);">
           <div style="font-weight: 600; margin-bottom: 8px;">Détails à afficher :</div>
 
-          <ha-formfield label="Historique">
-            <ha-switch
-              .checked="${showHistory}"
-              @change="${(ev) => this._toggleBool("show_history_detail", ev.target.checked)}"
-            ></ha-switch>
-          </ha-formfield>
-
-          <ha-formfield label="Échecs">
-            <ha-switch
-              .checked="${showFailed}"
-              @change="${(ev) => this._toggleBool("show_failed_detail", ev.target.checked)}"
-            ></ha-switch>
-          </ha-formfield>
-
-          <ha-formfield label="En attente">
-            <ha-switch
-              .checked="${showPending}"
-              @change="${(ev) => this._toggleBool("show_pending_detail", ev.target.checked)}"
-            ></ha-switch>
-          </ha-formfield>
+          <p><label><input type="checkbox" ?checked="${showHistory}" @change="${(ev) => this._toggleBool("show_history_detail", ev.target.checked)}" /> Historique</label></p>
+          <p><label><input type="checkbox" ?checked="${showFailed}" @change="${(ev) => this._toggleBool("show_failed_detail", ev.target.checked)}" /> Échecs</label></p>
+          <p><label><input type="checkbox" ?checked="${showPending}" @change="${(ev) => this._toggleBool("show_pending_detail", ev.target.checked)}" /> En attente</label></p>
         </div>
       </div>
     `;
   }
 
   _valueChanged(ev, key) {
-    const val = ev.detail && ev.detail.value ? ev.detail.value : "";
+    const val = ev.target ? ev.target.value : (ev.detail ? ev.detail.value : "");
     const config = { ...this.config, [key]: val };
     this.config = config;
     this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
