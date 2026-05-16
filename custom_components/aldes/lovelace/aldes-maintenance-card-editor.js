@@ -74,4 +74,6 @@ class AldesMaintenanceCardEditor extends LitElement {
     this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
   }
 }
-customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
+if (!customElements.get("aldes-maintenance-card-editor")) {
+  customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
+}

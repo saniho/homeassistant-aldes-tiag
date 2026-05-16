@@ -219,9 +219,13 @@ class AldesMaintenanceCardEditor extends HTMLElement {
     this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
   }
 }
-customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
+if (!customElements.get("aldes-maintenance-card-editor")) {
+  customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
+}
 
-customElements.define("aldes-maintenance-card", AldesMaintenanceCard);
+if (!customElements.get("aldes-maintenance-card")) {
+  customElements.define("aldes-maintenance-card", AldesMaintenanceCard);
+}
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "aldes-maintenance-card",

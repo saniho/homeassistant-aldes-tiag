@@ -495,4 +495,6 @@ class AldesPlanningCardEditor extends HTMLElement {
         this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
     }
 }
-customElements.define("aldes-planning-card-editor", AldesPlanningCardEditor);
+if (!customElements.get("aldes-planning-card-editor")) {
+  customElements.define("aldes-planning-card-editor", AldesPlanningCardEditor);
+}
