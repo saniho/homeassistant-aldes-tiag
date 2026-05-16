@@ -168,63 +168,49 @@ class AldesMaintenanceCardEditor extends HTMLElement {
   setConfig(config) { this._config = config; }
   set hass(hass) { this._hass = hass; this._render(); }
 
-  _getEntityIds() {
-    const ids = Object.keys(this._hass?.states || {});
-    const modem = (this._config?.modem_entity || "").toLowerCase();
-    return ids.filter((eid) => eid.startsWith("sensor.") && (!modem || eid.includes(modem)));
-  }
-
   _render() {
     if (!this._hass || !this._config) return;
+    this.innerHTML = '<div class="card-config"></div>';
+    const container = this.firstElementChild;
 
-    const showHistory = this._config.show_history_detail !== false;
-    const showFailed = this._config.show_failed_detail !== false;
-    const showPending = this._config.show_pending_detail !== false;
-    const entities = this._getEntityIds();
-
-    let html = '<div class="card-config">';
-
-    // Modem entity
-    html += '<div style="margin-bottom:8px;">';
-    html += '<label style="font-weight:500;display:block;margin-bottom:4px;">Modem Entity (Pending Commands)</label>';
-    html += '<div style="position:relative;">';
-    html += '<input type="text" id="modem-input" list="modem-list" value="' + (this._config.modem_entity || "") + '" style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--input-fill);color:var(--primary-text-color);font-size:14px;box-sizing:border-box;" />';
-    html += '<datalist id="modem-list">';
-    for (const eid of entities) {
-      const name = this._hass.states[eid]?.attributes?.friendly_name || eid;
-      html += '<option value="' + eid + '">' + name + '</option>';
-    }
-    html += '</datalist>';
-    html += '</div></div>';
-
-    // Connectivity entity
-    html += '<div style="margin-bottom:16px;">';
-    html += '<label style="font-weight:500;display:block;margin-bottom:4px;">Connectivity Sensor (API Health)</label>';
-    html += '<div style="position:relative;">';
-    html += '<input type="text" id="conn-input" list="conn-list" value="' + (this._config.connectivity_entity || "") + '" style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--input-fill);color:var(--primary-text-color);font-size:14px;box-sizing:border-box;" />';
-    html += '<datalist id="conn-list">';
-    for (const eid of entities) {
-      const name = this._hass.states[eid]?.attributes?.friendly_name || eid;
-      html += '<option value="' + eid + '">' + name + '</option>';
-    }
-    html += '</datalist>';
-    html += '</div></div>';
+    this._addEntityPicker(container, "modem_entity", "Modem Entity (Pending Commands)");
+    this._addEntityPicker(container, "connectivity_entity", "Connectivity Sensor (API Health)");
 
     // Toggles
-    html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--divider-color);">';
-    html += '<div style="font-weight:600;margin-bottom:8px;">Détails à afficher :</div>';
-    html += '<p><label><input type="checkbox" id="chk-history"' + (showHistory ? ' checked' : '') + ' /> Historique</label></p>';
-    html += '<p><label><input type="checkbox" id="chk-failed"' + (showFailed ? ' checked' : '') + ' /> Échecs</label></p>';
-    html += '<p><label><input type="checkbox" id="chk-pending"' + (showPending ? ' checked' : '') + ' /> En attente</label></p>';
-    html += '</div></div>';
+    const section = document.createElement("div");
+    section.style.cssText = "margin-top:16px;padding-top:12px;border-top:1px solid var(--divider-color);";
+    section.innerHTML = '<div style="font-weight:600;margin-bottom:8px;">Détails à afficher :</div>';
+    section.innerHTML += '<p><label><input type="checkbox" id="chk-history"' + (this._config.show_history_detail !== false ? ' checked' : '') + ' /> Historique</label></p>';
+    section.innerHTML += '<p><label><input type="checkbox" id="chk-failed"' + (this._config.show_failed_detail !== false ? ' checked' : '') + ' /> Échecs</label></p>';
+    section.innerHTML += '<p><label><input type="checkbox" id="chk-pending"' + (this._config.show_pending_detail !== false ? ' checked' : '') + ' /> En attente</label></p>';
+    container.appendChild(section);
 
-    this.innerHTML = html;
+    section.querySelector("#chk-history")?.addEventListener("change", (e) => this._setConfig("show_history_detail", e.target.checked));
+    section.querySelector("#chk-failed")?.addEventListener("change", (e) => this._setConfig("show_failed_detail", e.target.checked));
+    section.querySelector("#chk-pending")?.addEventListener("change", (e) => this._setConfig("show_pending_detail", e.target.checked));
+  }
 
-    this.querySelector("#modem-input")?.addEventListener("input", (e) => this._setConfig("modem_entity", e.target.value));
-    this.querySelector("#conn-input")?.addEventListener("input", (e) => this._setConfig("connectivity_entity", e.target.value));
-    this.querySelector("#chk-history")?.addEventListener("change", (e) => this._setConfig("show_history_detail", e.target.checked));
-    this.querySelector("#chk-failed")?.addEventListener("change", (e) => this._setConfig("show_failed_detail", e.target.checked));
-    this.querySelector("#chk-pending")?.addEventListener("change", (e) => this._setConfig("show_pending_detail", e.target.checked));
+  _addEntityPicker(container, key, label) {
+    const wrapper = document.createElement("div");
+    wrapper.style.marginBottom = key === "connectivity_entity" ? "16px" : "8px";
+
+    const labelEl = document.createElement("label");
+    labelEl.style.cssText = "font-weight:500;display:block;margin-bottom:4px;";
+    labelEl.textContent = label;
+    wrapper.appendChild(labelEl);
+
+    const picker = document.createElement("ha-entity-picker");
+    picker.hass = this._hass;
+    picker.value = this._config[key] || "";
+    picker.label = label;
+    picker.allowCustomEntity = true;
+    picker.addEventListener("value-changed", (ev) => {
+      if (ev.detail && ev.detail.value !== undefined) {
+        this._setConfig(key, ev.detail.value);
+      }
+    });
+    wrapper.appendChild(picker);
+    container.appendChild(wrapper);
   }
 
   _setConfig(key, val) {
