@@ -173,10 +173,9 @@ class AldesMaintenanceCardEditor extends HTMLElement {
     this.innerHTML = '<div class="card-config"></div>';
     const container = this.firstElementChild;
 
-    this._addEntityPicker(container, "modem_entity", "Modem Entity (Pending Commands)");
-    this._addEntityPicker(container, "connectivity_entity", "Connectivity Sensor (API Health)");
+    this._addEntitySelect(container, "modem_entity", "Modem Entity (Pending Commands)");
+    this._addEntitySelect(container, "connectivity_entity", "Connectivity Sensor (API Health)");
 
-    // Toggles
     const section = document.createElement("div");
     section.style.cssText = "margin-top:16px;padding-top:12px;border-top:1px solid var(--divider-color);";
     section.innerHTML = '<div style="font-weight:600;margin-bottom:8px;">Détails à afficher :</div>';
@@ -190,27 +189,54 @@ class AldesMaintenanceCardEditor extends HTMLElement {
     section.querySelector("#chk-pending")?.addEventListener("change", (e) => this._setConfig("show_pending_detail", e.target.checked));
   }
 
-  _addEntityPicker(container, key, label) {
+  _getSensorOptions(current) {
+    const ids = Object.keys(this._hass?.states || {}).filter((eid) => eid.startsWith("sensor.")).sort();
+    let opts = '<option value="">— Sélectionnez —</option>';
+    for (const eid of ids) {
+      const selected = eid === current ? " selected" : "";
+      const name = this._hass.states[eid]?.attributes?.friendly_name || eid;
+      opts += '<option value="' + eid.replace(/"/g, "&quot;") + '"' + selected + '>' + name + '</option>';
+    }
+    opts += '<option value="__custom__">✏️ Saisir une entité personnalisée...</option>';
+    return opts;
+  }
+
+  _addEntitySelect(container, key, label) {
+    const current = this._config[key] || "";
     const wrapper = document.createElement("div");
     wrapper.style.marginBottom = key === "connectivity_entity" ? "16px" : "8px";
 
-    const labelEl = document.createElement("label");
-    labelEl.style.cssText = "font-weight:500;display:block;margin-bottom:4px;";
-    labelEl.textContent = label;
-    wrapper.appendChild(labelEl);
+    wrapper.innerHTML =
+      '<label style="font-weight:500;display:block;margin-bottom:4px;">' + label + '</label>' +
+      '<select id="sel-' + key + '" style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--input-fill);color:var(--primary-text-color);font-size:14px;">' +
+      this._getSensorOptions(current) +
+      '</select>' +
+      '<input type="text" id="custom-' + key + '" placeholder="Saisir l\'ID de l\'entité..." style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--input-fill);color:var(--primary-text-color);font-size:14px;box-sizing:border-box;margin-top:4px;' + (current && !this._hass.states[current] ? '' : ' display:none;') + '" />';
 
-    const picker = document.createElement("ha-entity-picker");
-    picker.hass = this._hass;
-    picker.value = this._config[key] || "";
-    picker.label = label;
-    picker.allowCustomEntity = true;
-    picker.addEventListener("value-changed", (ev) => {
-      if (ev.detail && ev.detail.value !== undefined) {
-        this._setConfig(key, ev.detail.value);
+    container.appendChild(wrapper);
+
+    const sel = wrapper.querySelector("#sel-" + key);
+    const customInput = wrapper.querySelector("#custom-" + key);
+
+    if (current && !this._hass.states[current]) {
+      sel.value = "__custom__";
+      customInput.value = current;
+      customInput.style.display = "";
+    }
+
+    sel.addEventListener("change", () => {
+      if (sel.value === "__custom__") {
+        customInput.style.display = "";
+        customInput.focus();
+      } else {
+        customInput.style.display = "none";
+        this._setConfig(key, sel.value);
       }
     });
-    wrapper.appendChild(picker);
-    container.appendChild(wrapper);
+
+    customInput.addEventListener("input", () => {
+      this._setConfig(key, customInput.value);
+    });
   }
 
   _setConfig(key, val) {
@@ -219,8 +245,7 @@ class AldesMaintenanceCardEditor extends HTMLElement {
     this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
   }
 }
-if (!customElements.get("aldes-maintenance-card-editor")) {
-  customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
+customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
 }
 
 if (!customElements.get("aldes-maintenance-card")) {
