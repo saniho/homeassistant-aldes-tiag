@@ -165,84 +165,64 @@ class AldesMaintenanceCard extends LitElement {
 }
 
 class AldesMaintenanceCardEditor extends HTMLElement {
-  setConfig(config) { this._config = config; }
-  set hass(hass) { this._hass = hass; this._render(); }
+  _initialized = false;
 
-  _render() {
-    if (!this._hass || !this._config) return;
-    this.innerHTML = '<div class="card-config"></div>';
-    const container = this.firstElementChild;
-
-    this._addEntitySelect(container, "modem_entity", "Modem Entity (Pending Commands)");
-    this._addEntitySelect(container, "connectivity_entity", "Connectivity Sensor (API Health)");
-
-    const section = document.createElement("div");
-    section.style.cssText = "margin-top:16px;padding-top:12px;border-top:1px solid var(--divider-color);";
-    section.innerHTML = '<div style="font-weight:600;margin-bottom:8px;">Détails à afficher :</div>';
-    section.innerHTML += '<p><label><input type="checkbox" id="chk-history"' + (this._config.show_history_detail !== false ? ' checked' : '') + ' /> Historique</label></p>';
-    section.innerHTML += '<p><label><input type="checkbox" id="chk-failed"' + (this._config.show_failed_detail !== false ? ' checked' : '') + ' /> Échecs</label></p>';
-    section.innerHTML += '<p><label><input type="checkbox" id="chk-pending"' + (this._config.show_pending_detail !== false ? ' checked' : '') + ' /> En attente</label></p>';
-    container.appendChild(section);
-
-    section.querySelector("#chk-history")?.addEventListener("change", (e) => this._setConfig("show_history_detail", e.target.checked));
-    section.querySelector("#chk-failed")?.addEventListener("change", (e) => this._setConfig("show_failed_detail", e.target.checked));
-    section.querySelector("#chk-pending")?.addEventListener("change", (e) => this._setConfig("show_pending_detail", e.target.checked));
-  }
-
-  _getSensorOptions(current) {
-    const ids = Object.keys(this._hass?.states || {}).filter((eid) => eid.startsWith("sensor.")).sort();
-    let opts = '<option value="">— Sélectionnez —</option>';
-    for (const eid of ids) {
-      const selected = eid === current ? " selected" : "";
-      const name = this._hass.states[eid]?.attributes?.friendly_name || eid;
-      opts += '<option value="' + eid.replace(/"/g, "&quot;") + '"' + selected + '>' + name + '</option>';
-    }
-    opts += '<option value="__custom__">✏️ Saisir une entité personnalisée...</option>';
-    return opts;
-  }
-
-  _addEntitySelect(container, key, label) {
-    const current = this._config[key] || "";
-    const wrapper = document.createElement("div");
-    wrapper.style.marginBottom = key === "connectivity_entity" ? "16px" : "8px";
-
-    wrapper.innerHTML =
-      '<label style="font-weight:500;display:block;margin-bottom:4px;">' + label + '</label>' +
-      '<select id="sel-' + key + '" style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--input-fill);color:var(--primary-text-color);font-size:14px;">' +
-      this._getSensorOptions(current) +
-      '</select>' +
-      '<input type="text" id="custom-' + key + '" placeholder="Saisir l\'ID de l\'entité..." style="width:100%;padding:8px;border:1px solid var(--divider-color);border-radius:4px;background:var(--input-fill);color:var(--primary-text-color);font-size:14px;box-sizing:border-box;margin-top:4px;' + (current && !this._hass.states[current] ? '' : ' display:none;') + '" />';
-
-    container.appendChild(wrapper);
-
-    const sel = wrapper.querySelector("#sel-" + key);
-    const customInput = wrapper.querySelector("#custom-" + key);
-
-    if (current && !this._hass.states[current]) {
-      sel.value = "__custom__";
-      customInput.value = current;
-      customInput.style.display = "";
-    }
-
-    sel.addEventListener("change", () => {
-      if (sel.value === "__custom__") {
-        customInput.style.display = "";
-        customInput.focus();
-      } else {
-        customInput.style.display = "none";
-        this._setConfig(key, sel.value);
-      }
-    });
-
-    customInput.addEventListener("input", () => {
-      this._setConfig(key, customInput.value);
-    });
-  }
-
-  _setConfig(key, val) {
-    const config = { ...this._config, [key]: val };
+  setConfig(config) {
     this._config = config;
-    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
+    if (this._form) {
+      this._form.data = this._config;
+    }
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._initialized) {
+      if (this._form) this._form.hass = hass;
+      return;
+    }
+    this._initialized = true;
+
+    const schema = [
+      { name: "modem_entity", selector: { entity: { domain: "sensor" } } },
+      { name: "connectivity_entity", selector: { entity: { domain: "sensor" } } },
+      {
+        name: "",
+        type: "grid",
+        column_min_width: "120px",
+        schema: [
+          { name: "show_history_detail", selector: { boolean: {} } },
+          { name: "show_failed_detail", selector: { boolean: {} } },
+          { name: "show_pending_detail", selector: { boolean: {} } },
+        ],
+      },
+    ];
+
+    const form = document.createElement("ha-form");
+    form.hass = this._hass;
+    form.data = this._config || {};
+    form.schema = schema;
+    form.computeLabel = (s) => {
+      const labels = {
+        modem_entity: "Modem Entity (Pending Commands)",
+        connectivity_entity: "Connectivity Sensor (API Health)",
+        show_history_detail: "Afficher l'historique",
+        show_failed_detail: "Afficher les échecs",
+        show_pending_detail: "Afficher les en attente",
+      };
+      return labels[s.name] || s.name;
+    };
+
+    form.addEventListener("value-changed", (ev) => {
+      this._config = ev.detail.value;
+      this.dispatchEvent(new CustomEvent("config-changed", {
+        detail: { config: ev.detail.value },
+        bubbles: true,
+        composed: true,
+      }));
+    });
+
+    this._form = form;
+    this.appendChild(form);
   }
 }
 customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
