@@ -74,25 +74,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     base_url = "/aldes_lovelace"
     card_path = Path(__file__).parent / "lovelace"
     await hass.http.async_register_static_paths([
-        StaticPathConfig(base_url, card_path, True)
+        StaticPathConfig(base_url, card_path, False)
     ])
 
     async def _register_lovelace_resource(_event: Event | None = None) -> None:
         """Register the custom card as a lovelace resource."""
         if "lovelace" not in hass.data:
             return
-        
-    resources = hass.data["lovelace"].resources
-    url_card = f"{base_url}/aldes-maintenance-card.js"
-    url_planning = f"{base_url}/aldes-planning-card.js"
-    
-    for url in [url_card, url_planning]:
-        if not any(res.get("url") == url for res in resources.async_items()):
-            await resources.async_create_item({
-                "res_type": "module",
-                "url": url
-            })
-            _LOGGER.info("Registered Lovelace resource: %s", url)
+        resources = hass.data["lovelace"].resources
+        url_card = f"{base_url}/aldes-maintenance-card.js"
+        url_planning = f"{base_url}/aldes-planning-card.js"
+        existing = {r.get("url") for r in resources.async_items()}
+        for url in [url_card, url_planning]:
+            if url not in existing:
+                await resources.async_create_item({
+                    "res_type": "module",
+                    "url": url
+                })
+                _LOGGER.info("Registered Lovelace resource: %s", url)
 
     if hass.is_running:
         await _register_lovelace_resource()
