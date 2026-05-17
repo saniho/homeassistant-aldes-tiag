@@ -226,7 +226,6 @@ class AldesMaintenanceCardEditor extends HTMLElement {
   }
 }
 customElements.define("aldes-maintenance-card-editor", AldesMaintenanceCardEditor);
-}
 
 if (!customElements.get("aldes-maintenance-card")) {
   customElements.define("aldes-maintenance-card", AldesMaintenanceCard);
