@@ -755,7 +755,7 @@ class AldesApi:
             "token": token_info,
             "health_state": self.health_state.value,
             "queue_active": (
-                self._temperature_task is not None and not self._temperature_task.done()
+                self._worker_task is not None and not self._worker_task.done()
             ),
         }
 
