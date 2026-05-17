@@ -25,7 +25,7 @@ Cette intégration permet d'ajouter le produit Aldes T.One à Home Assistant via
 | **Carte de maintenance**                                                                                                                                                                                                       |       ✔️        |         ✔️          |
 | **État de santé API**                                                                                                                                                                                                          |       ✔️        |         ✔️          |
 
-## Évolutions v3.5 → v3.7
+## Évolutions v3.5 → v3.8
 
 ### Nouveaux capteurs de diagnostic
 
@@ -41,25 +41,40 @@ Cette intégration permet d'ajouter le produit Aldes T.One à Home Assistant via
 
 ### Carte Lovelace « Maintenance »
 
-Nouvelle carte custom auto-enregistrée. Affiche la file d'active des commandes, l'état de connexion API, et l'historique avec timestamps de mise en file → exécution.
+Nouvelle carte custom auto-enregistrée avec éditeur visuel complet. Affiche la file d'attente des commandes, l'état de connexion API, et les détails configurables.
+
+**Fonctionnalités de l'éditeur :**
+- Sélecteur d'entité avec liste déroulante des sensors disponibles
+- Champ connectivité pour le statut live API
+- Toggles pour afficher/masquer chaque section :
+  - **Historique** : dernières commandes exécutées
+  - **Échecs** : commandes en échec
+  - **En attente** : commandes dans la file
 
 ```yaml
 type: custom:aldes-maintenance-card
 modem_entity: sensor.<device>_pending_commands
 connectivity_entity: sensor.<device>_api_health
+show_history_detail: true
+show_failed_detail: true
+show_pending_detail: true
 ```
+
+### Éditeur visuel Carte Planning
+
+Nouvel éditeur pour la carte planning avec découverte automatique des entités et sélection manuelle par cases à cocher.
 
 ### Auto-enregistrement Lovelace
 
-Les ressources JS des cartes sont automatiquement déclarées dans Lovelace à l'installation. Plus besoin d'ajouter manuellement les ressources dans Paramètres.
+Les ressources JS des cartes sont automatiquement déclarées dans Lovelace à l'installation.
 
 ### Fiabilité et robustesse
 
 - **Timestamps doubles** : l'historique affiche `14:30:00→14:30:05 - action` (file d'attente → exécution/réel)
 - **Capteur API Health** retravaillé pour ne plus rester bloqué en `unavailable` après une erreur réseau passagère
-- **Attribut `integration_version`** sur tous les capteurs pour faciliter le diagnostic
-- **Éditeur visuel** pour configurer la carte maintenance (plus besoin d'YAML)
-- **Champ connectivité** dans la carte : affiche le statut live via `sensor.<device>_api_health`
+- **Attribut `integration_version`** sur tous les capteurs
+- **Éditeur visuel** maintenance avec sélecteurs d'entités et toggles
+- **Champ connectivité** dans la carte : statut live via `sensor.<device>_api_health`
 
 ## Stabilité et Robustesse
 
