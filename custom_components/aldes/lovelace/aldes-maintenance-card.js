@@ -165,19 +165,22 @@ class AldesMaintenanceCard extends LitElement {
 }
 
 class AldesMaintenanceCardEditor extends HTMLElement {
-  _initialized = false;
-
   setConfig(config) {
     this._config = config;
-    if (this._form) {
-      this._form.data = this._config;
-    }
   }
 
   set hass(hass) {
     this._hass = hass;
+    this._render();
+  }
+
+  _render() {
     if (this._initialized) {
-      if (this._form) this._form.hass = hass;
+      const form = this.querySelector("ha-form");
+      if (form) {
+        form.hass = this._hass;
+        form.data = this._config;
+      }
       return;
     }
     this._initialized = true;
@@ -199,7 +202,7 @@ class AldesMaintenanceCardEditor extends HTMLElement {
 
     const form = document.createElement("ha-form");
     form.hass = this._hass;
-    form.data = this._config || {};
+    form.data = this._config;
     form.schema = schema;
     form.computeLabel = (s) => {
       const labels = {
@@ -213,7 +216,6 @@ class AldesMaintenanceCardEditor extends HTMLElement {
     };
 
     form.addEventListener("value-changed", (ev) => {
-      this._config = ev.detail.value;
       this.dispatchEvent(new CustomEvent("config-changed", {
         detail: { config: ev.detail.value },
         bubbles: true,
@@ -221,7 +223,6 @@ class AldesMaintenanceCardEditor extends HTMLElement {
       }));
     });
 
-    this._form = form;
     this.appendChild(form);
   }
 }
