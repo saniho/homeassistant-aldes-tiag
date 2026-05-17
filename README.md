@@ -64,6 +64,12 @@ show_pending_detail: true
 
 Nouvel éditeur pour la carte planning avec découverte automatique des entités et sélection manuelle par cases à cocher.
 
+### Corrections v3.8.1
+
+- **Planning entity** : ne retourne plus `unknown` quand la liste de planning est vide (affiche `"0 items"`)
+- **Attributs planning** : `planning_data` toujours présent même quand vide → la carte planning détecte correctement l'entité
+- **API Health** : correction de `_temperature_task` → `_worker_task` dans `get_diagnostic_info()`
+
 ### Auto-enregistrement Lovelace
 
 Les ressources JS des cartes sont automatiquement déclarées dans Lovelace à l'installation.
