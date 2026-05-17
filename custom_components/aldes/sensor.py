@@ -444,7 +444,7 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
             _LOGGER.exception("Error getting planning state %s", self.planning_type)
             return "error"
         else:
-            if planning and isinstance(planning, list):
+            if isinstance(planning, list):
                 return f"{len(planning)} items"
             return "unknown"
 
@@ -453,7 +453,7 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
         """Return extra state attributes with planning data."""
         device = self._get_device()
         if not device:
-            return {"integration_version": VERSION}
+            return {"planning_data": [], "item_count": 0, "integration_version": VERSION}
 
         try:
             planning = getattr(device, self.planning_key, None)
@@ -461,10 +461,10 @@ class AldesPlanningEntity(BaseAldesSensorEntity):
             _LOGGER.error(
                 "Error getting planning attributes %s: %s", self.planning_type, e
             )
-            return {"integration_version": VERSION}
+            return {"planning_data": [], "item_count": 0, "integration_version": VERSION}
         else:
             if not planning:
-                return {"integration_version": VERSION}
+                return {"planning_data": [], "item_count": 0, "integration_version": VERSION}
             commands = [
                 item if isinstance(item, str) else item.get("command")
                 for item in planning
