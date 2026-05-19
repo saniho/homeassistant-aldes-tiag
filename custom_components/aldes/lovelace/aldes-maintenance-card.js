@@ -49,6 +49,7 @@ class AldesMaintenanceCard extends LitElement {
       .warning { color: var(--warning-color); }
       .connected { color: var(--success-color); }
       .disconnected { color: var(--error-color); }
+      .not-found { color: var(--warning-color); }
       .detail-section {
         margin-top: 16px;
       }
@@ -92,14 +93,18 @@ class AldesMaintenanceCard extends LitElement {
     const failed = attrs.failed || [];
     const current = attrs.current || "—";
 
-    let connected = stateObj ? stateObj.state === "on" || attrs.is_connected : false;
+    let connected = false;
     let connectivityState = "";
+    let connectivityFound = false;
     if (this.config.connectivity_entity) {
       const connState = this.hass.states[this.config.connectivity_entity];
       if (connState) {
+        connectivityFound = true;
         connectivityState = connState.state;
         connected = connState.state === "online" || connState.state === "on";
       }
+    } else if (stateObj) {
+      connected = stateObj.state === "on" || attrs.is_connected;
     }
 
     const showHistory = this.config.show_history_detail !== false;
@@ -112,10 +117,13 @@ class AldesMaintenanceCard extends LitElement {
           <ha-icon icon="mdi:air-filter"></ha-icon>
           <span>Aldes Maintenance</span>
         </div>
-        <span class="${connected ? 'connected' : 'disconnected'}">
-          ${connected ? "● Connected" : "● Disconnected"}
-          ${connectivityState ? html` (${connectivityState})` : ""}
-        </span>
+        ${this.config.connectivity_entity && !connectivityFound
+          ? html`<span class="not-found">⚠ Entité introuvable</span>`
+          : html`<span class="${connected ? 'connected' : 'disconnected'}">
+              ${connected ? "● Connected" : "● Disconnected"}
+              ${connectivityState ? html` (${connectivityState})` : ""}
+            </span>`
+        }
       </div>
       ${stateObj ? html`
       <div class="grid">
