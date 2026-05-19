@@ -14,11 +14,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: Release ${{ github.ref_name }}
-          prerelease: true
-          generate_release_notes: true
+      - name: Create ZIP
+        run: |
+          zip -r "aldes-${{ github.ref_name }}.zip" custom_components/
+
+      - name: Create Beta Release
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --notes "Beta release ${{ github.ref_name }}" \
+            --prerelease \
+            "aldes-${{ github.ref_name }}.zip"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

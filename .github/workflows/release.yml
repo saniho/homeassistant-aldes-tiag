@@ -13,18 +13,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create ZIP with correct structure
+      - name: Create ZIP
         run: |
-          # Créer le ZIP avec seulement custom_components/ à la racine
-          zip -r aldes-${{ github.event.release.tag_name }}.zip custom_components/
-          
-          # Optionnel : vérifier la structure du ZIP créé
-          echo "Structure du ZIP créé:"
-          unzip -l aldes-${{ github.event.release.tag_name }}.zip
+          zip -r "aldes-${{ github.event.release.tag_name }}.zip" custom_components/
 
       - name: Upload ZIP to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: aldes-${{ github.event.release.tag_name }}.zip
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" "aldes-${{ github.event.release.tag_name }}.zip"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
