@@ -59,12 +59,19 @@ Après installation, redémarrez Home Assistant et configurez l'intégration via
 
 ### Carte Lovelace « Maintenance »
 
-Une fois l'intégration installée, ajoutez une carte manuelle ou utilisez l'éditeur visuel (cliquez sur "Modifier" dans le coin droit de la carte).
+![Capture d'écran de la carte maintenance](images/maintenance-card.png)
 
-**Fonctionnalités de l'éditeur :**
-- Sélecteur d'entité avec liste déroulante des sensors disponibles
-- Champ connectivité pour le statut live API
-- Toggles pour afficher/masquer chaque section (Historique, Échecs, En attente)
+Carte custom permettant de visualiser l'état en temps réel de la communication entre Home Assistant et le cloud Aldes.
+
+**Affichage :**
+- **État de connexion API** — statut live (`online`, `offline`, `degraded`, `retrying`) via `sensor.<device>_api_health`
+- **File d'attente** — commandes en attente d'exécution
+- **Historique** — dernières commandes exécutées avec timestamps double (`14:30:00→14:30:05 - action`)
+- **Échecs** — commandes ayant échoué
+
+**Installation :** la ressource JS est auto-enregistrée dans Lovelace à l'installation. Aucune déclaration manuelle de ressource n'est nécessaire (contrairement à la carte planning).
+
+**Configuration :** ajoutez la carte via l'éditeur visuel (cliquez sur "Modifier" dans le coin droit de la carte) ou en YAML :
 
 ```yaml
 type: custom:aldes-maintenance-card
@@ -74,6 +81,11 @@ show_history_detail: true
 show_failed_detail: true
 show_pending_detail: true
 ```
+
+**Options de l'éditeur visuel :**
+- Sélecteur d'entité avec liste déroulante des sensors disponibles
+- Champ connectivité pour le statut live API
+- Toggles pour afficher/masquer chaque section (Historique, Échecs, En attente)
 
 ### Carte de planning interactive
 
